@@ -2,6 +2,7 @@
 
 import { WebSocketServer } from 'ws';
 import {
+  LanguageCode,
   StartStreamTranscriptionCommand,
   TranscribeStreamingClient
 } from '@aws-sdk/client-transcribe-streaming';
@@ -27,30 +28,20 @@ const PORT = process.env.PORT || 8080;
 // Authentication Token
 const AUTH_TOKEN = process.env.AUTH_TOKEN || 'your-hardcoded-auth-token'; // Replace with your secure token
 
+// Define default transcription settings
+const DEFAULT_LANGUAGE_CODE = 'en-US';
+const DEFAULT_MEDIA_ENCODING = 'pcm';
+const DEFAULT_MEDIA_SAMPLE_RATE_HERTZ = 16000;
+const DEFAULT_SHOW_SPEAKER_LABEL = false;
+
 // Initialize AWS Transcribe Client
 const transcribeClient = new TranscribeStreamingClient({
   region: REGION,
   credentials: fromEnv(),
 });
 
-// Initialize WebSocket Server with handleProtocols
-const wss = new WebSocketServer({
-  port: PORT,
-  handleProtocols: (protocols, request) => {
-    // 'protocols' can be a comma-separated string
-    const protocolList = typeof protocols === 'string' ? protocols.split(',').map(p => p.trim()) : protocols;
-
-    const token = protocolList[0]; // Assuming the first protocol is the token
-
-    if (token === AUTH_TOKEN) {
-      console.log('Authentication successful for client.');
-      return token; // Accept and echo back the protocol
-    }
-
-    console.warn('Authentication failed for client. Invalid token.');
-    return false; // Reject the connection
-  }
-});
+// Initialize WebSocket Server
+const wss = new WebSocketServer({ port: PORT });
 
 console.log(`WebSocket Server is listening on port ${PORT}`);
 
@@ -157,21 +148,42 @@ const handleTranscriptionStream = async (transcriptStream, ws) => {
    ========================== */
 
 wss.on('connection', async (ws, req) => {
-  console.log('Client connected and authenticated');
+  const ip = req.socket.remoteAddress;
 
-  // Create a single audio stream generator
-  const audioStream = createAudioStream(ws);
+  // Parse the URL to extract the token from query parameters
+  const url = new URL(req.url, `http://${req.headers.host}`);
+  const token = url.searchParams.get('token');
 
-  // Configure AWS Transcribe Command with the same audioStream
-  const command = new StartStreamTranscriptionCommand({
-    LanguageCode: 'fr-FR', // Target language
-    MediaEncoding: 'pcm',
-    MediaSampleRateHertz: 16000,
-    AudioStream: audioStream, // Use the single generator
-    ShowSpeakerLabel: true // Optional
-  });
+  if (token !== AUTH_TOKEN) {
+    console.warn(`Authentication failed for client from IP: ${ip}. Invalid token.`);
+    ws.close(1008, 'Authentication failed'); // 1008: Policy Violation
+    return;
+  }
+
+  console.log(`Authentication successful for client from IP: ${ip}`);
+
+  // Extract additional transcription parameters
+  const languageCode = url.searchParams.get('language') || DEFAULT_LANGUAGE_CODE;
+  const mediaEncoding = url.searchParams.get('encoding') || DEFAULT_MEDIA_ENCODING;
+  const mediaSampleRateHertz = parseInt(url.searchParams.get('sampleRate'), 10) || DEFAULT_MEDIA_SAMPLE_RATE_HERTZ;
+  const showSpeakerLabel = url.searchParams.get('speakerLabel') === 'true' ? true : DEFAULT_SHOW_SPEAKER_LABEL;
+
+  console.log(`Transcription parameters: Language=${languageCode}, Encoding=${mediaEncoding}, SampleRate=${mediaSampleRateHertz}, SpeakerLabel=${showSpeakerLabel}`);
+
 
   try {
+    // Create a single audio stream generator
+    const audioStream = createAudioStream(ws);
+
+    // Configure AWS Transcribe Command with the same audioStream
+    const command = new StartStreamTranscriptionCommand({
+      LanguageCode: languageCode,
+      MediaEncoding: mediaEncoding,
+      MediaSampleRateHertz: mediaSampleRateHertz,
+      AudioStream: audioStream, // Use the single generator
+      ShowSpeakerLabel: showSpeakerLabel,
+    });
+
     // Start transcription
     const response = await transcribeClient.send(command);
     console.log('Transcription started successfully');
@@ -188,12 +200,12 @@ wss.on('connection', async (ws, req) => {
 
   // Handle client disconnection
   ws.on('close', (code, reason) => {
-    console.log(`Client disconnected (code: ${code}, reason: ${reason})`);
+    console.log(`Client from IP: ${ip} disconnected (code: ${code}, reason: ${reason})`);
   });
 
   // Handle unforeseen errors
   ws.on('error', (error) => {
-    console.error('WebSocket error:', error);
+    console.error(`WebSocket error for client from IP: ${ip}:`, error);
   });
 });
 
