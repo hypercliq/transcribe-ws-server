@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Audio Streaming Client</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+    }
+    #transcription {
+      width: 100%;
+      max-width: 600px;
+      min-height: 200px;
+      border: 1px solid #ccc;
+      padding: 15px;
+      font-size: 1.2em;
+      overflow-y: auto;
+    }
+    .final {
+      color: black;
+    }
+    .partial {
+      color: grey;
+    }
+    button {
+      margin-right: 10px;
+      padding: 10px 20px;
+      font-size: 1em;
+    }
+  </style>
+</head>
+<body>
+  <h1>Audio Streaming Client</h1>
+  <button id="start">Start Streaming</button>
+  <button id="stop">Stop Streaming</button>
+  <button id="clear">Clear Transcription</button>
+  <br><br>
+  <div id="transcription"></div>
+
+  <script>
+    const startButton = document.getElementById('start');
+    const stopButton = document.getElementById('stop');
+    const clearButton = document.getElementById('clear');
+    const transcriptionDiv = document.getElementById('transcription');
+
+    let ws;
+    let audioContext;
+    let processor;
+    let input;
+    let partialSpan = null;
+
+    startButton.onclick = async () => {
+      const token = 'your-hardcoded-auth-token'; // Replace with your actual token securely
+
+      // Initialize WebSocket with the token as the subprotocol
+      ws = new WebSocket('ws://localhost:8080', token);
+
+      ws.onopen = () => {
+        console.log('Connected to server');
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          if (message.partialTranscript) {
+            updatePartialTranscript(message.partialTranscript);
+          } else if (message.transcript) {
+            appendFinalTranscript(message.transcript);
+          } else if (message.error) {
+            console.error('Server error:', message.error);
+          } else {
+            console.log('Received message:', message);
+          }
+        } catch (err) {
+          console.error('Error parsing message:', err);
+        }
+      };
+
+      ws.onclose = () => {
+        console.log('Disconnected from server');
+      };
+
+      // Initialize Audio Context
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const originalSampleRate = audioContext.sampleRate;
+      console.log('Original sample rate:', originalSampleRate);
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        input = audioContext.createMediaStreamSource(stream);
+
+        processor = audioContext.createScriptProcessor(1024, 1, 1);
+
+        processor.onaudioprocess = (e) => {
+          const inputData = e.inputBuffer.getChannelData(0);
+
+          // Resample the audio data to 16,000 Hz
+          const resampledData = downsampleBuffer(inputData, originalSampleRate, 16000);
+
+          // Convert to 16-bit PCM
+          const pcmData = floatTo16BitPCM(resampledData);
+
+          // Send the resampled and formatted audio data to the server
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(pcmData);
+            // Optional: Debugging statement
+            // console.log('Sent audio data of length:', pcmData.byteLength);
+          }
+        };
+
+        input.connect(processor);
+        processor.connect(audioContext.destination);
+      } catch (err) {
+        console.error('Error accessing microphone:', err);
+        const errorMessage = document.createElement('div');
+        errorMessage.textContent = 'Could not access your microphone. Please check permissions.';
+        errorMessage.style.color = 'red';
+        document.body.appendChild(errorMessage);
+      }
+    };
+
+    stopButton.onclick = () => {
+      if (ws) {
+        ws.close();
+      }
+      if (processor && audioContext) {
+        processor.disconnect();
+        audioContext.close();
+      }
+      console.log('Streaming stopped');
+    };
+
+    clearButton.onclick = () => {
+      transcriptionDiv.innerHTML = '';
+      partialSpan = null;
+      console.log('Transcription cleared');
+    };
+
+    function updatePartialTranscript(partialTranscript) {
+      if (!partialSpan) {
+        // Create a new partial transcript span if it doesn't exist
+        partialSpan = document.createElement('span');
+        partialSpan.className = 'partial';
+        transcriptionDiv.appendChild(partialSpan);
+      }
+
+      // Update the textContent of the partial transcript span
+      partialSpan.textContent = partialTranscript + ' ';
+      // Auto-scroll to the bottom
+      transcriptionDiv.scrollTop = transcriptionDiv.scrollHeight;
+    }
+
+    function appendFinalTranscript(transcript) {
+      // Remove the partial transcript span if it exists
+      if (partialSpan) {
+        transcriptionDiv.removeChild(partialSpan);
+        partialSpan = null;
+      }
+
+      // Append the final transcript
+      const finalSpan = document.createElement('span');
+      finalSpan.className = 'final';
+      finalSpan.textContent = transcript + ' ';
+      transcriptionDiv.appendChild(finalSpan);
+      // Auto-scroll to the bottom
+      transcriptionDiv.scrollTop = transcriptionDiv.scrollHeight;
+    }
+
+    // Functions for audio processing
+    function downsampleBuffer(buffer, sampleRate, outSampleRate) {
+      if (outSampleRate >= sampleRate) {
+        return buffer;
+      }
+      const sampleRateRatio = sampleRate / outSampleRate;
+      const newLength = Math.round(buffer.length / sampleRateRatio);
+      const result = new Float32Array(newLength);
+      let offsetResult = 0;
+      let offsetBuffer = 0;
+      while (offsetResult < result.length) {
+        const nextOffsetBuffer = Math.round((offsetResult + 1) * sampleRateRatio);
+        let accum = 0, count = 0;
+        for (let i = offsetBuffer; i < nextOffsetBuffer && i < buffer.length; i++) {
+          accum += buffer[i];
+          count++;
+        }
+        result[offsetResult] = accum / count;
+        offsetResult++;
+        offsetBuffer = nextOffsetBuffer;
+      }
+      return result;
+    }
+
+    function floatTo16BitPCM(input) {
+      const buffer = new ArrayBuffer(input.length * 2);
+      const output = new DataView(buffer);
+      for (let i = 0; i < input.length; i++) {
+        let s = Math.max(-1, Math.min(1, input[i]));
+        output.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+      }
+      return buffer;
+    }
+  </script>
+</body>
+</html>
