@@ -3,10 +3,10 @@
 
 <head>
   <meta charset="UTF-8">
-  <title>Audio Streaming Client</title>
+  <title>Real-Time Streaming Client</title>
   <style>
     body {
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-family: Arial, sans-serif;
       background-color: #f4f4f9;
       margin: 0;
       padding: 20px;
@@ -21,18 +21,11 @@
 
     .controls {
       margin: 20px 0;
+      display: flex;
+      gap: 15px;
     }
 
-    .controls button {
-      margin-right: 15px;
-      padding: 10px 25px;
-      font-size: 1em;
-      border: none;
-      border-radius: 5px;
-      cursor: pointer;
-      transition: background-color 0.3s ease;
-    }
-
+    /* Specific button styles */
     .controls button#start {
       background-color: #4CAF50;
       color: white;
@@ -60,6 +53,39 @@
       background-color: #007bb5;
     }
 
+    /* Disabled button styles with increased specificity */
+    .controls button#start:disabled,
+    .controls button#stop:disabled,
+    .controls button#clear:disabled {
+      background-color: #cccccc;
+      color: #666666;
+      cursor: not-allowed;
+      box-shadow: none;
+      opacity: 0.6;
+      transition: opacity 0.3s ease;
+    }
+
+    /* General button styles */
+    .controls button {
+      padding: 10px 25px;
+      font-size: 1em;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      transition: background-color 0.3s ease, box-shadow 0.3s ease;
+      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    }
+
+    .controls button:hover {
+      box-shadow: 0 6px 8px rgba(0, 0, 0, 0.15);
+    }
+
+    .controls button:focus {
+      outline: none;
+      box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.5);
+    }
+
+    /* Transcription area */
     #transcription {
       width: 100%;
       max-width: 600px;
@@ -89,6 +115,7 @@
       font-weight: bold;
     }
 
+    /* Responsive Design */
     @media (max-width: 600px) {
       .controls button {
         margin-bottom: 10px;
@@ -103,7 +130,7 @@
 </head>
 
 <body>
-  <h1>Audio Streaming Client</h1>
+  <h1>Real-Time Streaming Client</h1>
 
   <div class="controls">
     <button id="start">Start Streaming</button>
@@ -127,90 +154,103 @@
     let input;
     let partialSpan = null;
 
-    startButton.addEventListener('click', async () => {
-      // Disable the start button immediately to prevent multiple connections
+    // Function to disable all buttons
+    function disableAllButtons() {
       startButton.disabled = true;
+      stopButton.disabled = true;
+      clearButton.disabled = true;
+    }
 
-      const token = 'your-hardcoded-auth-token'; // Ensure this matches the server's AUTH_TOKEN
+    // Function to enable buttons based on state
+    function updateButtonStates(isStreaming) {
+      startButton.disabled = isStreaming;
+      stopButton.disabled = !isStreaming;
+      clearButton.disabled = isStreaming; // Disable clear while streaming
+    }
 
-      // Initialize WebSocket with the token as the subprotocol
-      ws = new WebSocket('ws://localhost:8080', token);
-
-      ws.addEventListener('open', () => {
-        console.log('Connected to server');
-        stopButton.disabled = false;
-        errorMessageDiv.textContent = '';
-      });
-
-      ws.addEventListener('message', (event) => {
-        if (event.data) {
-          try {
-            const message = JSON.parse(event.data);
-            if (message.partialTranscript) {
-              updatePartialTranscript(message.partialTranscript);
-            } else if (message.transcript) {
-              appendFinalTranscript(message.transcript);
-            } else if (message.error) {
-              console.error('Server error:', message.error);
-              displayError(message.error);
-            } else {
-              console.log('Received message:', message);
-            }
-          } catch (err) {
-            console.error('Error parsing message:', err);
-            displayError('Received invalid message from server.');
-          }
-        }
-      });
-
-      ws.addEventListener('close', (event) => {
-        console.log(`Disconnected from server (code: ${event.code}, reason: ${event.reason})`);
-        startButton.disabled = false;
-        stopButton.disabled = true;
-        if (event.code !== 1000) { // 1000 indicates normal closure
-          displayError('Disconnected from server unexpectedly.');
-        }
-      });
-
-      ws.addEventListener('error', (err) => {
-        console.error('WebSocket error:', err);
-        displayError('WebSocket encountered an error.');
-        startButton.disabled = false;
-        stopButton.disabled = true;
-      });
-
-      // Initialize Audio Context
-      audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      const originalSampleRate = audioContext.sampleRate;
-      console.log('Original sample rate:', originalSampleRate);
+    startButton.addEventListener('click', async () => {
+      disableAllButtons();
+      const token = 'your-hardcoded-auth-token'; // Replace with your actual token
 
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        input = audioContext.createMediaStreamSource(stream);
+        ws = new WebSocket(`ws://localhost:8080/?token=${encodeURIComponent(token)}`);
 
-        processor = audioContext.createScriptProcessor(1024, 1, 1);
+        ws.addEventListener('open', () => {
+          console.log('Connected to server');
+          updateButtonStates(true);
+          errorMessageDiv.textContent = '';
+        });
 
-        processor.onaudioprocess = (e) => {
-          const inputData = e.inputBuffer.getChannelData(0);
-
-          // Resample the audio data to 16,000 Hz
-          const resampledData = downsampleBuffer(inputData, originalSampleRate, 16000);
-
-          // Convert to 16-bit PCM
-          const pcmData = floatTo16BitPCM(resampledData);
-
-          // Send the resampled and formatted audio data to the server
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(pcmData);
+        ws.addEventListener('message', (event) => {
+          if (event.data) {
+            try {
+              const message = JSON.parse(event.data);
+              if (message.partialTranscript) {
+                updatePartialTranscript(message.partialTranscript);
+              } else if (message.transcript) {
+                appendFinalTranscript(message.transcript);
+              } else if (message.error) {
+                console.error('Server error:', message.error);
+                displayError(message.error);
+              }
+            } catch (err) {
+              console.error('Error parsing message:', err);
+              displayError('Received invalid message from server.');
+            }
           }
-        };
+        });
 
-        input.connect(processor);
-        processor.connect(audioContext.destination);
+        ws.addEventListener('close', (event) => {
+          console.log(`Disconnected from server (code: ${event.code}, reason: ${event.reason})`);
+          updateButtonStates(false);
+          if (event.code !== 1000) { // 1000 indicates normal closure
+            displayError('Disconnected from server unexpectedly.');
+          }
+        });
+
+        ws.addEventListener('error', (err) => {
+          console.error('WebSocket error:', err);
+          displayError('WebSocket encountered an error.');
+          updateButtonStates(false);
+        });
+
+        // Initialize Audio Context
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const originalSampleRate = audioContext.sampleRate;
+        console.log('Original sample rate:', originalSampleRate);
+
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          input = audioContext.createMediaStreamSource(stream);
+
+          processor = audioContext.createScriptProcessor(1024, 1, 1);
+
+          processor.onaudioprocess = (e) => {
+            const inputData = e.inputBuffer.getChannelData(0);
+
+            // Resample the audio data to 16,000 Hz
+            const resampledData = downsampleBuffer(inputData, originalSampleRate, 16000);
+
+            // Convert to 16-bit PCM
+            const pcmData = floatTo16BitPCM(resampledData);
+
+            // Send the resampled and formatted audio data to the server
+            if (ws.readyState === WebSocket.OPEN) {
+              ws.send(pcmData);
+            }
+          };
+
+          input.connect(processor);
+          processor.connect(audioContext.destination);
+        } catch (err) {
+          console.error('Error accessing microphone:', err);
+          displayError('Could not access your microphone. Please check permissions.');
+          updateButtonStates(false);
+        }
       } catch (err) {
         console.error('Error accessing microphone:', err);
         displayError('Could not access your microphone. Please check permissions.');
-        startButton.disabled = false; // Re-enable if microphone access fails
+        updateButtonStates(false);
       }
     });
 
@@ -223,8 +263,7 @@
         audioContext.close();
       }
       console.log('Streaming stopped');
-      stopButton.disabled = true;
-      startButton.disabled = false;
+      updateButtonStates(false);
     });
 
     clearButton.addEventListener('click', () => {
