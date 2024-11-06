@@ -156,7 +156,7 @@ const handleTranscriptionStream = async (
       }
     }
   } catch (error) {
-    clientLogger.error(`Error in transcription stream: ${error.message}`)
+    clientLogger.error(`Error in transcription stream: ${error.message}`, { stack: error.stack })
     if (ws.readyState === ws.OPEN) {
       ws.send(JSON.stringify({ error: 'Error in transcription stream' }))
       ws.close(1011, 'Internal server error')
@@ -232,7 +232,7 @@ wss.on('connection', async (ws, request) => {
   })
 
   ws.on('error', (error) => {
-    clientLogger.error(`WebSocket error: ${error.message}`)
+    clientLogger.error(`WebSocket error: ${error.message}`, { stack: error.stack })
     if (abortController) {
       abortController.abort() // Abort the AWS Transcribe request
     }
@@ -260,9 +260,13 @@ wss.on('connection', async (ws, request) => {
 
     clientLogger.info('Transcription started successfully')
 
-    handleTranscriptionStream(response.TranscriptResultStream, ws, clientLogger)
+    await handleTranscriptionStream(
+      response.TranscriptResultStream,
+      ws,
+      clientLogger
+    )
   } catch (error) {
-    clientLogger.error(`Error starting transcription: ${error.message}`)
+    clientLogger.error(`Error starting transcription: ${error.message}`, { stack: error.stack })
     if (ws.readyState === ws.OPEN) {
       ws.send(JSON.stringify({ error: 'Error starting transcription' }))
       ws.close(1011, 'Internal server error')
@@ -292,12 +296,12 @@ const gracefulShutdown = () => {
 
 // Global error handlers
 process.on('unhandledRejection', (reason) => {
-  logger.error(`Unhandled Rejection: ${reason}`)
+  logger.error(`Unhandled Rejection: ${reason}`, { stack: reason.stack })
   process.exit(1)
 })
 
 process.on('uncaughtException', (error) => {
-  logger.error(`Uncaught Exception: ${error.message}`)
+  logger.error(`Uncaught Exception: ${error.message}`, { stack: error.stack })
   process.exit(1)
 })
 

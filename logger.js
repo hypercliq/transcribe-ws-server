@@ -8,14 +8,20 @@ const LOG_LEVEL =
 // Format for console output (simple text)
 const consoleFormat = format.combine(
   format.colorize(),
-  format.printf(({ level, message, clientIP }) => {
+  format.errors({ stack: true }),
+  format.printf(({ level, message, clientIP, stack }) => {
     const ipInfo = clientIP ? `[${clientIP}] ` : ''
-    return `${level}: ${ipInfo}${message}`
+    const stackInfo = stack ? `\nStack: ${stack}` : ''
+    return `${level}: ${ipInfo}${message}${stackInfo}`
   }),
 )
 
 // Format for file output (JSON)
-const fileFormat = format.combine(format.timestamp(), format.json())
+const fileFormat = format.combine(
+  format.timestamp(),
+  format.errors({ stack: true }),
+  format.json(),
+)
 
 const logger = createLogger({
   level: LOG_LEVEL,
