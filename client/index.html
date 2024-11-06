@@ -248,7 +248,7 @@
 
       try {
         // Construct WebSocket URL with token and language as query parameters
-        ws = new WebSocket(`ws://localhost:8080/?token=${encodeURIComponent(token)}&language=${encodeURIComponent(selectedLanguage)}`);
+        ws = new WebSocket(`wss://192.168.178.31:8443/?token=${encodeURIComponent(token)}&language=${encodeURIComponent(selectedLanguage)}`);
 
         ws.addEventListener('open', () => {
           console.log('Connected to server');
