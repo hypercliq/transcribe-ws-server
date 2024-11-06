@@ -1,42 +1,41 @@
-import { createLogger, format, transports } from 'winston'
+import pino from 'pino';
 
-// Determine the log level
-const LOG_LEVEL =
-  process.env.LOG_LEVEL ||
-  (process.env.NODE_ENV === 'development' ? 'debug' : 'info')
+// Determine the current environment (default to 'development')
+const environment = process.env.NODE_ENV || 'development';
 
-// Format for console output (simple text)
-const consoleFormat = format.combine(
-  format.colorize(),
-  format.errors({ stack: true }),
-  format.printf(({ level, message, clientIP, stack }) => {
-    const ipInfo = clientIP ? `[${clientIP}] ` : ''
-    const stackInfo = stack ? `\nStack: ${stack}` : ''
-    return `${level}: ${ipInfo}${message}${stackInfo}`
-  }),
-)
+// Determine the log level, allowing override via LOG_LEVEL env var
+const LOG_LEVEL = process.env.LOG_LEVEL || (environment === 'development' ? 'debug' : 'info');
 
-// Format for file output (JSON)
-const fileFormat = format.combine(
-  format.timestamp(),
-  format.errors({ stack: true }),
-  format.json(),
-)
+// Define transport targets
+const targets = [
+  {
+    target: 'pino-pretty',
+    options: {
+      colorize: true,
+      translateTime: 'SYS:standard',
+      ignore: 'pid,hostname',
+    },
+  },
+];
 
-const logger = createLogger({
-  level: LOG_LEVEL,
-  transports: [
-    new transports.Console({
-      format: consoleFormat,
-    }),
-    new transports.File({
-      filename: 'combined.log',
-      format: fileFormat,
-    }),
-  ],
-})
+// Add file transport for production
+if (environment === 'production') {
+  targets.push({
+    target: 'pino/file',
+    options: {
+      destination: 'combined.log',
+      mkdir: true, // Ensure directories are created if they do not exist
+    },
+  });
+}
 
-// Function to create a child logger with client IP
-const logWithIP = (clientIP) => logger.child({ clientIP })
+// Create pino transports
+const transports = pino.transport({
+  targets,
+});
 
-export { logger, logWithIP }
+// Initialize the logger
+export const logger = pino({ level: LOG_LEVEL }, transports);
+
+// Function to create a child logger with additional context (e.g., clientIP)
+export const logWithIP = (IP) => logger.child({ IP });

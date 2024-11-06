@@ -10,7 +10,7 @@ import 'dotenv/config'
 import fs from 'node:fs'
 import https from 'node:https'
 import { WebSocketServer } from 'ws'
-import { logger, logWithIP } from './logger.js'
+import { logger , logWithIP } from './logger.js'
 import Joi from 'joi' // Import Joi
 
 /* ==========================
@@ -29,17 +29,17 @@ const AUTH_TOKEN = process.env.AUTH_TOKEN
 // Configuration validation at startup
 if (!REGION) {
   logger.error('AWS_REGION environment variable is not set')
-  process.exit(1)
+  throw new Error('Configuration Error')
 }
 
 if (!PORT) {
   logger.error('PORT environment variable is not set')
-  process.exit(1)
+  throw new Error('Configuration Error')
 }
 
 if (!AUTH_TOKEN) {
   logger.error('AUTH_TOKEN environment variable is not set')
-  process.exit(1)
+  throw new Error('Configuration Error')
 }
 
 // Define default transcription settings
@@ -156,7 +156,9 @@ const handleTranscriptionStream = async (
       }
     }
   } catch (error) {
-    clientLogger.error(`Error in transcription stream: ${error.message}`, { stack: error.stack })
+    clientLogger.error(`Error in transcription stream: ${error.message}`, {
+      stack: error.stack,
+    })
     if (ws.readyState === ws.OPEN) {
       ws.send(JSON.stringify({ error: 'Error in transcription stream' }))
       ws.close(1011, 'Internal server error')
@@ -176,40 +178,13 @@ const querySchema = Joi.object({
   sampleRate: Joi.number()
     .integer()
     .min(8000)
-    .max(48000)
+    .max(48_000)
     .default(DEFAULT_MEDIA_SAMPLE_RATE_HERTZ),
   speakerLabel: Joi.boolean()
     .truthy('true')
     .falsy('false')
     .default(DEFAULT_SHOW_SPEAKER_LABEL),
 })
-
-const verifyQueryParameters = (url, ws, clientLogger) => {
-  const queryParams = Object.fromEntries(url.searchParams.entries())
-
-  const { error, value } = querySchema.validate(queryParams)
-
-  if (error) {
-    clientLogger.warn(`Invalid query parameters: ${error.message}`)
-    ws.close(1008, 'Invalid query parameters')
-    return null
-  }
-
-  clientLogger.info('Authentication successful')
-
-  // Build parameters from validated values
-  const parameters = {
-    LanguageCode: value.language,
-    MediaEncoding: value.encoding,
-    MediaSampleRateHertz: value.sampleRate,
-  }
-
-  if (value.speakerLabel) {
-    parameters.ShowSpeakerLabel = true
-  }
-
-  return parameters
-}
 
 /* ==========================
    WebSocket Server Event Handlers
@@ -232,7 +207,9 @@ wss.on('connection', async (ws, request) => {
   })
 
   ws.on('error', (error) => {
-    clientLogger.error(`WebSocket error: ${error.message}`, { stack: error.stack })
+    clientLogger.error(`WebSocket error: ${error.message}`, {
+      stack: error.stack,
+    })
     if (abortController) {
       abortController.abort() // Abort the AWS Transcribe request
     }
@@ -241,11 +218,21 @@ wss.on('connection', async (ws, request) => {
   const url = new URL(request.url, `https://${request.headers.host}`)
   clientLogger.debug(`Parsed URL: ${url.href}`)
 
-  const parameters = verifyQueryParameters(url, ws, clientLogger)
+  const {error, value} = querySchema.validate(Object.fromEntries(url.searchParams.entries()))
 
-  if (!parameters) {
-    clientLogger.warn('Connection terminated due to invalid parameters')
+  if (error) {
+    clientLogger.warn(`Invalid query parameters: ${error.message}`)
+    ws.close(1008, 'Invalid query parameters')
     return
+  }
+
+  clientLogger.info('Authentication successful')
+
+  // Build parameters from validated values
+  const parameters = {
+    LanguageCode: value.language,
+    MediaEncoding: value.encoding,
+    MediaSampleRateHertz: value.sampleRate,
   }
 
   try {
@@ -263,10 +250,12 @@ wss.on('connection', async (ws, request) => {
     await handleTranscriptionStream(
       response.TranscriptResultStream,
       ws,
-      clientLogger
+      clientLogger,
     )
   } catch (error) {
-    clientLogger.error(`Error starting transcription: ${error.message}`, { stack: error.stack })
+    clientLogger.error(`Error starting transcription: ${error.message}`, {
+      stack: error.stack,
+    })
     if (ws.readyState === ws.OPEN) {
       ws.send(JSON.stringify({ error: 'Error starting transcription' }))
       ws.close(1011, 'Internal server error')
