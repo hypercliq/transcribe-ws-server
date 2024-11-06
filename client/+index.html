@@ -1,539 +1,570 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-
-<head>
-  <meta charset="UTF-8">
-  <title>Real-Time Streaming Client with Keyword Detection</title>
-  <style>
-    body {
-      font-family: Arial, sans-serif;
-      background-color: #f4f4f9;
-      margin: 0;
-      padding: 20px;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-    }
-
-    h1 {
-      color: #333;
-      text-align: center;
-    }
-
-    .controls {
-      margin: 20px 0;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 15px;
-      width: 100%;
-      max-width: 600px;
-    }
-
-    /* Language Select Styles */
-    .controls .language-select {
-      width: 100%;
-      display: flex;
-      justify-content: center;
-    }
-
-    .controls select#language-select {
-      padding: 10px 15px;
-      font-size: 1em;
-      border: none;
-      border-radius: 5px;
-      background-color: #e2e2e2;
-      color: #333;
-      cursor: pointer;
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-      transition: background-color 0.3s ease, box-shadow 0.3s ease;
-      width: 100%;
-      max-width: 300px;
-    }
-
-    .controls select#language-select:hover {
-      background-color: #d4d4d4;
-      box-shadow: 0 6px 8px rgba(0, 0, 0, 0.15);
-    }
-
-    .controls select#language-select:focus {
-      outline: none;
-      box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.5);
-    }
-
-    /* Button Styles */
-    .controls .buttons {
-      display: flex;
-      gap: 15px;
-      width: 100%;
-      max-width: 600px;
-      justify-content: center;
-      flex-wrap: wrap;
-    }
-
-    /* Specific button styles */
-    .controls button#start-listening {
-      background-color: #4CAF50;
-      color: white;
-    }
-
-    .controls button#start-listening:hover {
-      background-color: #45a049;
-    }
-
-    .controls button#stop-listening {
-      background-color: #f44336;
-      color: white;
-    }
-
-    .controls button#stop-listening:hover {
-      background-color: #da190b;
-    }
-
-    .controls button#clear {
-      background-color: #008CBA;
-      color: white;
-    }
-
-    .controls button#clear:hover {
-      background-color: #007bb5;
-    }
-
-    /* Disabled button styles with increased specificity */
-    .controls button#start-listening:disabled,
-    .controls button#stop-listening:disabled,
-    .controls button#clear:disabled {
-      background-color: #cccccc;
-      color: #666666;
-      cursor: not-allowed;
-      box-shadow: none;
-      opacity: 0.6;
-      transition: opacity 0.3s ease;
-    }
-
-    /* General button styles */
-    .controls button {
-      padding: 10px 25px;
-      font-size: 1em;
-      border: none;
-      border-radius: 5px;
-      cursor: pointer;
-      transition: background-color 0.3s ease, box-shadow 0.3s ease;
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-    }
-
-    .controls button:hover {
-      box-shadow: 0 6px 8px rgba(0, 0, 0, 0.15);
-    }
-
-    .controls button:focus {
-      outline: none;
-      box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.5);
-    }
-
-    /* Transcription area */
-    #transcription {
-      width: 100%;
-      max-width: 600px;
-      min-height: 250px;
-      border: 2px solid #ccc;
-      border-radius: 10px;
-      padding: 20px;
-      background-color: white;
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-      overflow-y: auto;
-      font-size: 1.1em;
-      color: #333;
-    }
-
-    .final {
-      color: #000;
-    }
-
-    .partial {
-      color: #555;
-      font-style: italic;
-    }
-
-    #error-message {
-      margin-top: 15px;
-      color: #e74c3c;
-      font-weight: bold;
-      width: 100%;
-      max-width: 600px;
-      text-align: center;
-    }
-
-    /* Responsive Design */
-    @media (max-width: 600px) {
-      .controls .buttons {
+  <head>
+    <meta charset="UTF-8" />
+    <title>Real-Time Streaming Client with Keyword Detection</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        background-color: #f4f4f9;
+        margin: 0;
+        padding: 20px;
+        display: flex;
         flex-direction: column;
-        gap: 10px;
+        align-items: center;
+      }
+
+      h1 {
+        color: #333;
+        text-align: center;
+      }
+
+      .controls {
+        margin: 20px 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 15px;
+        width: 100%;
+        max-width: 600px;
+      }
+
+      /* Language Select Styles */
+      .controls .language-select {
+        width: 100%;
+        display: flex;
+        justify-content: center;
       }
 
       .controls select#language-select {
-        max-width: 100%;
+        padding: 10px 15px;
+        font-size: 1em;
+        border: none;
+        border-radius: 5px;
+        background-color: #e2e2e2;
+        color: #333;
+        cursor: pointer;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        transition:
+          background-color 0.3s ease,
+          box-shadow 0.3s ease;
+        width: 100%;
+        max-width: 300px;
       }
 
+      .controls select#language-select:hover {
+        background-color: #d4d4d4;
+        box-shadow: 0 6px 8px rgba(0, 0, 0, 0.15);
+      }
+
+      .controls select#language-select:focus {
+        outline: none;
+        box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.5);
+      }
+
+      /* Button Styles */
+      .controls .buttons {
+        display: flex;
+        gap: 15px;
+        width: 100%;
+        max-width: 600px;
+        justify-content: center;
+        flex-wrap: wrap;
+      }
+
+      /* Specific button styles */
+      .controls button#start-listening {
+        background-color: #4caf50;
+        color: white;
+      }
+
+      .controls button#start-listening:hover {
+        background-color: #45a049;
+      }
+
+      .controls button#stop-listening {
+        background-color: #f44336;
+        color: white;
+      }
+
+      .controls button#stop-listening:hover {
+        background-color: #da190b;
+      }
+
+      .controls button#clear {
+        background-color: #008cba;
+        color: white;
+      }
+
+      .controls button#clear:hover {
+        background-color: #007bb5;
+      }
+
+      /* Disabled button styles with increased specificity */
+      .controls button#start-listening:disabled,
+      .controls button#stop-listening:disabled,
+      .controls button#clear:disabled {
+        background-color: #cccccc;
+        color: #666666;
+        cursor: not-allowed;
+        box-shadow: none;
+        opacity: 0.6;
+        transition: opacity 0.3s ease;
+      }
+
+      /* General button styles */
+      .controls button {
+        padding: 10px 25px;
+        font-size: 1em;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        transition:
+          background-color 0.3s ease,
+          box-shadow 0.3s ease;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      }
+
+      .controls button:hover {
+        box-shadow: 0 6px 8px rgba(0, 0, 0, 0.15);
+      }
+
+      .controls button:focus {
+        outline: none;
+        box-shadow: 0 0 0 3px rgba(74, 144, 226, 0.5);
+      }
+
+      /* Transcription area */
       #transcription {
-        width: 90%;
+        width: 100%;
+        max-width: 600px;
+        min-height: 250px;
+        border: 2px solid #ccc;
+        border-radius: 10px;
+        padding: 20px;
+        background-color: white;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        overflow-y: auto;
+        font-size: 1.1em;
+        color: #333;
+      }
+
+      .final {
+        color: #000;
+      }
+
+      .partial {
+        color: #555;
+        font-style: italic;
       }
 
       #error-message {
-        width: 90%;
-      }
-    }
-  </style>
-</head>
-
-<body>
-  <h1>Real-Time Streaming Client with Keyword Detection</h1>
-
-  <div class="controls">
-    <!-- Language Selection Dropdown -->
-    <div class="language-select">
-      <label for="language-select" style="display: none;">Language:</label>
-      <select id="language-select" aria-label="Select Language">
-        <option value="en-US">English (US)</option>
-        <option value="es-ES">Spanish</option>
-        <option value="fr-FR">French</option>
-        <option value="de-DE">German</option>
-        <option value="it-IT">Italian</option>
-        <!-- Add more languages as needed -->
-      </select>
-    </div>
-
-    <div class="buttons">
-      <button id="start-listening">Start Listening</button>
-      <button id="stop-listening" disabled>Stop Listening</button>
-      <button id="clear">Clear Transcription</button>
-    </div>
-  </div>
-
-  <div id="transcription" aria-live="polite"></div>
-  <div id="error-message" role="alert"></div>
-
-  <script>
-    const startListeningButton = document.getElementById('start-listening');
-    const stopListeningButton = document.getElementById('stop-listening');
-    const clearButton = document.getElementById('clear');
-    const transcriptionDiv = document.getElementById('transcription');
-    const errorMessageDiv = document.getElementById('error-message');
-    const languageSelect = document.getElementById('language-select');
-
-    let ws;
-    let audioContext;
-    let audioWorkletNode;
-    let input;
-    let partialSpan = null;
-    let recognition;
-    let isStreaming = false;
-    let silenceTimer;
-    const SILENCE_THRESHOLD = 0.01; // Adjust based on sensitivity
-    const SILENCE_DURATION = 10000; // 10 seconds in milliseconds
-    const KEYWORD = 'hello luminous'; // Define your trigger keyword
-
-    // Function to disable all buttons
-    function disableAllButtons() {
-      startListeningButton.disabled = true;
-      stopListeningButton.disabled = true;
-      clearButton.disabled = true;
-    }
-
-    // Function to enable buttons based on state
-    function updateButtonStates(isListening) {
-      startListeningButton.disabled = isListening;
-      stopListeningButton.disabled = !isListening;
-      clearButton.disabled = isListening;
-    }
-
-    // Initialize Speech Recognition for Keyword Detection
-    function initializeSpeechRecognition() {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (!SpeechRecognition) {
-        displayError('Web Speech API is not supported in this browser.');
-        return null;
+        margin-top: 15px;
+        color: #e74c3c;
+        font-weight: bold;
+        width: 100%;
+        max-width: 600px;
+        text-align: center;
       }
 
-      recognition = new SpeechRecognition();
-      recognition.continuous = true; // Keep listening until stopped
-      recognition.interimResults = false; // Only final results
-      recognition.lang = languageSelect.value; // Set language based on selection
-
-      recognition.onresult = (event) => {
-        const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
-        console.log(`Heard: ${transcript}`);
-
-        if (transcript === KEYWORD) {
-          console.log('Keyword detected. Starting streaming...');
-          startStreaming();
+      /* Responsive Design */
+      @media (max-width: 600px) {
+        .controls .buttons {
+          flex-direction: column;
+          gap: 10px;
         }
-      };
 
-      recognition.onerror = (event) => {
-        console.error('Speech Recognition Error:', event.error);
-        displayError(`Speech Recognition Error: ${event.error}`);
-      };
+        .controls select#language-select {
+          max-width: 100%;
+        }
 
-      recognition.onend = () => {
-        console.log('Speech Recognition ended. Restarting...');
-        recognition.start(); // Restart recognition to keep listening
-      };
+        #transcription {
+          width: 90%;
+        }
 
-      return recognition;
-    }
+        #error-message {
+          width: 90%;
+        }
+      }
+    </style>
+  </head>
 
-    // Function to start listening for the keyword
-    function startListening() {
-      disableAllButtons();
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (!SpeechRecognition) {
-        displayError('Web Speech API is not supported in this browser.');
-        return;
+  <body>
+    <h1>Real-Time Streaming Client with Keyword Detection</h1>
+
+    <div class="controls">
+      <!-- Language Selection Dropdown -->
+      <div class="language-select">
+        <label for="language-select" style="display: none">Language:</label>
+        <select id="language-select" aria-label="Select Language">
+          <option value="en-US">English (US)</option>
+          <option value="es-ES">Spanish</option>
+          <option value="fr-FR">French</option>
+          <option value="de-DE">German</option>
+          <option value="it-IT">Italian</option>
+          <!-- Add more languages as needed -->
+        </select>
+      </div>
+
+      <div class="buttons">
+        <button id="start-listening">Start Listening</button>
+        <button id="stop-listening" disabled>Stop Listening</button>
+        <button id="clear">Clear Transcription</button>
+      </div>
+    </div>
+
+    <div id="transcription" aria-live="polite"></div>
+    <div id="error-message" role="alert"></div>
+
+    <script>
+      const startListeningButton = document.getElementById('start-listening')
+      const stopListeningButton = document.getElementById('stop-listening')
+      const clearButton = document.getElementById('clear')
+      const transcriptionDiv = document.getElementById('transcription')
+      const errorMessageDiv = document.getElementById('error-message')
+      const languageSelect = document.getElementById('language-select')
+
+      let ws
+      let audioContext
+      let audioWorkletNode
+      let input
+      let partialSpan = null
+      let recognition
+      let isStreaming = false
+      let silenceTimer
+      const SILENCE_THRESHOLD = 0.01 // Adjust based on sensitivity
+      const SILENCE_DURATION = 10000 // 10 seconds in milliseconds
+      const KEYWORD = 'hello luminous' // Define your trigger keyword
+
+      // Function to disable all buttons
+      function disableAllButtons() {
+        startListeningButton.disabled = true
+        stopListeningButton.disabled = true
+        clearButton.disabled = true
       }
 
-      recognition = initializeSpeechRecognition();
-      if (recognition) {
-        recognition.start();
-        updateButtonStates(true);
-        console.log('Started listening for the keyword.');
+      // Function to enable buttons based on state
+      function updateButtonStates(isListening) {
+        startListeningButton.disabled = isListening
+        stopListeningButton.disabled = !isListening
+        clearButton.disabled = isListening
       }
-    }
 
-    // Function to stop listening for the keyword
-    function stopListening() {
-      if (recognition) {
-        recognition.stop();
-        recognition = null;
-        console.log('Stopped listening for the keyword.');
-      }
-      updateButtonStates(false);
-      startListeningButton.disabled = false;
-    }
+      // Initialize Speech Recognition for Keyword Detection
+      function initializeSpeechRecognition() {
+        const SpeechRecognition =
+          window.SpeechRecognition || window.webkitSpeechRecognition
+        if (!SpeechRecognition) {
+          displayError('Web Speech API is not supported in this browser.')
+          return null
+        }
 
-    // Function to start streaming audio to the server
-    async function startStreaming() {
-      if (isStreaming) return;
-      isStreaming = true;
-      disableAllButtons();
-      stopListeningButton.disabled = false;
+        recognition = new SpeechRecognition()
+        recognition.continuous = true // Keep listening until stopped
+        recognition.interimResults = false // Only final results
+        recognition.lang = languageSelect.value // Set language based on selection
 
-      const token = 'your-hardcoded-auth-token'; // Replace with your actual token
-      const selectedLanguage = languageSelect.value;
+        recognition.onresult = (event) => {
+          const transcript = event.results[
+            event.results.length - 1
+          ][0].transcript
+            .trim()
+            .toLowerCase()
+          console.log(`Heard: ${transcript}`)
 
-      try {
-        // Initialize WebSocket connection
-        ws = new WebSocket(`ws://localhost:8080/?token=${encodeURIComponent(token)}&language=${encodeURIComponent(selectedLanguage)}`);
-        ws.binaryType = 'arraybuffer';
-
-        ws.onopen = () => {
-          console.log('Connected to server');
-          errorMessageDiv.textContent = '';
-        };
-
-        // Handle incoming messages as before
-        ws.onmessage = (event) => {
-          const message = JSON.parse(event.data);
-          if (message.partialTranscript) {
-            updatePartialTranscript(message.partialTranscript);
-          } else if (message.transcript) {
-            appendFinalTranscript(message.transcript);
-          } else if (message.error) {
-            console.error('Server error:', message.error);
-            displayError(message.error);
-          } else {
-            console.warn('Received unknown message:', message);
+          if (transcript === KEYWORD) {
+            console.log('Keyword detected. Starting streaming...')
+            startStreaming()
           }
-        };
+        }
 
-        ws.onclose = (event) => {
-          console.log(`Disconnected from server (code: ${event.code}, reason: ${event.reason})`);
-          isStreaming = false;
-          updateButtonStates(false);
-          if (event.code !== 1000) {
-            displayError('Disconnected from server unexpectedly.');
+        recognition.onerror = (event) => {
+          console.error('Speech Recognition Error:', event.error)
+          displayError(`Speech Recognition Error: ${event.error}`)
+        }
+
+        recognition.onend = () => {
+          console.log('Speech Recognition ended. Restarting...')
+          recognition.start() // Restart recognition to keep listening
+        }
+
+        return recognition
+      }
+
+      // Function to start listening for the keyword
+      function startListening() {
+        disableAllButtons()
+        const SpeechRecognition =
+          window.SpeechRecognition || window.webkitSpeechRecognition
+        if (!SpeechRecognition) {
+          displayError('Web Speech API is not supported in this browser.')
+          return
+        }
+
+        recognition = initializeSpeechRecognition()
+        if (recognition) {
+          recognition.start()
+          updateButtonStates(true)
+          console.log('Started listening for the keyword.')
+        }
+      }
+
+      // Function to stop listening for the keyword
+      function stopListening() {
+        if (recognition) {
+          recognition.stop()
+          recognition = null
+          console.log('Stopped listening for the keyword.')
+        }
+        updateButtonStates(false)
+        startListeningButton.disabled = false
+      }
+
+      // Function to start streaming audio to the server
+      async function startStreaming() {
+        if (isStreaming) return
+        isStreaming = true
+        disableAllButtons()
+        stopListeningButton.disabled = false
+
+        const token = 'your-hardcoded-auth-token' // Replace with your actual token
+        const selectedLanguage = languageSelect.value
+
+        try {
+          // Initialize WebSocket connection
+          ws = new WebSocket(
+            `ws://localhost:8080/?token=${encodeURIComponent(token)}&language=${encodeURIComponent(selectedLanguage)}`,
+          )
+          ws.binaryType = 'arraybuffer'
+
+          ws.onopen = () => {
+            console.log('Connected to server')
+            errorMessageDiv.textContent = ''
           }
-        };
 
-        ws.onerror = (err) => {
-          console.error('WebSocket error:', err);
-          displayError('WebSocket encountered an error.');
-          isStreaming = false;
-          updateButtonStates(false);
-        };
-
-        // Initialize Audio Context and AudioWorkletNode
-        audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        await audioContext.audioWorklet.addModule('audio-worklet-processor.js');
-        audioWorkletNode = new AudioWorkletNode(audioContext, 'audio-processor');
-
-        // Handle messages from the AudioWorkletProcessor
-        audioWorkletNode.port.onmessage = (event) => {
-          const data = event.data;
-
-          if (data.audioData) {
-            const inputData = data.audioData;
-            // const rms = calculateRMS(inputData);
-
-            // Log the RMS value to ensure audio data is being processed
-            // console.log(`RMS: ${rms}`);
-
-            // Send audio data to AWS Transcribe
-            if (ws && ws.readyState === WebSocket.OPEN) {
-              const resampledData = downsampleBuffer(inputData, audioContext.sampleRate, 16000);
-              const pcmData = floatTo16BitPCM(resampledData);
-
-              // Log the size of the PCM data being sent
-              // console.log(`Sending audio data to server: ${pcmData.byteLength} bytes`);s
-              ws.send(pcmData);
+          // Handle incoming messages as before
+          ws.onmessage = (event) => {
+            const message = JSON.parse(event.data)
+            if (message.partialTranscript) {
+              updatePartialTranscript(message.partialTranscript)
+            } else if (message.transcript) {
+              appendFinalTranscript(message.transcript)
+            } else if (message.error) {
+              console.error('Server error:', message.error)
+              displayError(message.error)
+            } else {
+              console.warn('Received unknown message:', message)
             }
           }
-        };
 
-        // Get user media
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        input = audioContext.createMediaStreamSource(stream);
-        input.connect(audioWorkletNode);
+          ws.onclose = (event) => {
+            console.log(
+              `Disconnected from server (code: ${event.code}, reason: ${event.reason})`,
+            )
+            isStreaming = false
+            updateButtonStates(false)
+            if (event.code !== 1000) {
+              displayError('Disconnected from server unexpectedly.')
+            }
+          }
 
-        console.log('Streaming started');
-      } catch (err) {
-        console.error('Error during streaming:', err);
-        displayError('Failed to start streaming.');
-        isStreaming = false;
-        updateButtonStates(false);
-      }
-    }
+          ws.onerror = (err) => {
+            console.error('WebSocket error:', err)
+            displayError('WebSocket encountered an error.')
+            isStreaming = false
+            updateButtonStates(false)
+          }
 
-    // Function to stop streaming audio to the server
-    function stopStreaming() {
-      if (!isStreaming) return;
-      isStreaming = false;
+          // Initialize Audio Context and AudioWorkletNode
+          audioContext = new (window.AudioContext ||
+            window.webkitAudioContext)()
+          await audioContext.audioWorklet.addModule(
+            'audio-worklet-processor.js',
+          )
+          audioWorkletNode = new AudioWorkletNode(
+            audioContext,
+            'audio-processor',
+          )
 
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.close(1000, 'Streaming stopped by client');
-      } else {
-        ws = null;
-      }
+          // Handle messages from the AudioWorkletProcessor
+          audioWorkletNode.port.onmessage = (event) => {
+            const data = event.data
 
-      // Disconnect and clean up AudioWorkletNode and AudioContext
-      if (audioWorkletNode && audioContext) {
-        audioWorkletNode.port.onmessage = null;
-        audioWorkletNode.disconnect();
-        audioWorkletNode = null;
-        audioContext.close();
-        audioContext = null;
-      }
+            if (data.audioData) {
+              const inputData = data.audioData
+              // const rms = calculateRMS(inputData);
 
-      if (silenceTimer) {
-        clearTimeout(silenceTimer);
-        silenceTimer = null;
-      }
+              // Log the RMS value to ensure audio data is being processed
+              // console.log(`RMS: ${rms}`);
 
-      console.log('Streaming stopped');
-      updateButtonStates(false);
-      startListeningButton.disabled = false; // Allow listening again
-    }
+              // Send audio data to AWS Transcribe
+              if (ws && ws.readyState === WebSocket.OPEN) {
+                const resampledData = downsampleBuffer(
+                  inputData,
+                  audioContext.sampleRate,
+                  16000,
+                )
+                const pcmData = floatTo16BitPCM(resampledData)
 
-    // Function to calculate Root Mean Square of audio data for silence detection
-    function calculateRMS(buffer) {
-      let sum = 0;
-      for (const value of buffer) {
-        sum += value * value;
-      }
-      return Math.sqrt(sum / buffer.length);
-    }
+                // Log the size of the PCM data being sent
+                // console.log(`Sending audio data to server: ${pcmData.byteLength} bytes`);s
+                ws.send(pcmData)
+              }
+            }
+          }
 
-    // Function to clear transcription and errors
-    function clearTranscription() {
-      if (isStreaming) return; // Do not allow clearing while streaming
-      transcriptionDiv.innerHTML = '';
-      partialSpan = null;
-      errorMessageDiv.textContent = '';
-      console.log('Transcription cleared');
-    }
+          // Get user media
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+          })
+          input = audioContext.createMediaStreamSource(stream)
+          input.connect(audioWorkletNode)
 
-    // Event Listeners for Buttons
-    startListeningButton.addEventListener('click', startListening);
-    stopListeningButton.addEventListener('click', () => {
-      if (isStreaming) {
-        stopStreaming();
-      }
-      stopListening();
-    });
-    clearButton.addEventListener('click', clearTranscription);
-
-    // Function to update partial transcript
-    function updatePartialTranscript(partialTranscript) {
-      if (!partialSpan) {
-        // Create a new partial transcript span if it doesn't exist
-        partialSpan = document.createElement('span');
-        partialSpan.className = 'partial';
-        transcriptionDiv.appendChild(partialSpan);
-      }
-
-      // Update the textContent of the partial transcript span
-      partialSpan.textContent = partialTranscript + ' ';
-      // Auto-scroll to the bottom
-      transcriptionDiv.scrollTop = transcriptionDiv.scrollHeight;
-    }
-
-    // Function to append final transcript
-    function appendFinalTranscript(transcript) {
-      // Remove the partial transcript span if it exists
-      if (partialSpan) {
-        partialSpan.remove();
-        partialSpan = null;
-      }
-
-      // Append the final transcript
-      const finalSpan = document.createElement('span');
-      finalSpan.className = 'final';
-      finalSpan.textContent = transcript + ' ';
-      transcriptionDiv.appendChild(finalSpan);
-      // Auto-scroll to the bottom
-      transcriptionDiv.scrollTop = transcriptionDiv.scrollHeight;
-    }
-
-    // Function to display errors
-    function displayError(message) {
-      errorMessageDiv.textContent = message;
-    }
-
-    // Function to downsample the audio buffer
-    function downsampleBuffer(buffer, sampleRate, outSampleRate) {
-      if (outSampleRate >= sampleRate) {
-        return buffer;
-      }
-      const sampleRateRatio = sampleRate / outSampleRate;
-      const newLength = Math.round(buffer.length / sampleRateRatio);
-      const result = new Float32Array(newLength);
-      let offsetResult = 0;
-      let offsetBuffer = 0;
-      while (offsetResult < result.length) {
-        const nextOffsetBuffer = Math.round((offsetResult + 1) * sampleRateRatio);
-        let accum = 0, count = 0;
-        for (let i = offsetBuffer; i < nextOffsetBuffer && i < buffer.length; i++) {
-          accum += buffer[i];
-          count++;
+          console.log('Streaming started')
+        } catch (err) {
+          console.error('Error during streaming:', err)
+          displayError('Failed to start streaming.')
+          isStreaming = false
+          updateButtonStates(false)
         }
-        result[offsetResult] = accum / count;
-        offsetResult++;
-        offsetBuffer = nextOffsetBuffer;
       }
-      return result;
-    }
 
-    // Function to convert float audio data to 16-bit PCM
-    function floatTo16BitPCM(input) {
-      const buffer = new ArrayBuffer(input.length * 2);
-      const output = new DataView(buffer);
-      for (let i = 0; i < input.length; i++) {
-        let s = Math.max(-1, Math.min(1, input[i]));
-        output.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+      // Function to stop streaming audio to the server
+      function stopStreaming() {
+        if (!isStreaming) return
+        isStreaming = false
+
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.close(1000, 'Streaming stopped by client')
+        } else {
+          ws = null
+        }
+
+        // Disconnect and clean up AudioWorkletNode and AudioContext
+        if (audioWorkletNode && audioContext) {
+          audioWorkletNode.port.onmessage = null
+          audioWorkletNode.disconnect()
+          audioWorkletNode = null
+          audioContext.close()
+          audioContext = null
+        }
+
+        if (silenceTimer) {
+          clearTimeout(silenceTimer)
+          silenceTimer = null
+        }
+
+        console.log('Streaming stopped')
+        updateButtonStates(false)
+        startListeningButton.disabled = false // Allow listening again
       }
-      return buffer;
-    }
-  </script>
-</body>
 
+      // Function to calculate Root Mean Square of audio data for silence detection
+      function calculateRMS(buffer) {
+        let sum = 0
+        for (const value of buffer) {
+          sum += value * value
+        }
+        return Math.sqrt(sum / buffer.length)
+      }
+
+      // Function to clear transcription and errors
+      function clearTranscription() {
+        if (isStreaming) return // Do not allow clearing while streaming
+        transcriptionDiv.innerHTML = ''
+        partialSpan = null
+        errorMessageDiv.textContent = ''
+        console.log('Transcription cleared')
+      }
+
+      // Event Listeners for Buttons
+      startListeningButton.addEventListener('click', startListening)
+      stopListeningButton.addEventListener('click', () => {
+        if (isStreaming) {
+          stopStreaming()
+        }
+        stopListening()
+      })
+      clearButton.addEventListener('click', clearTranscription)
+
+      // Function to update partial transcript
+      function updatePartialTranscript(partialTranscript) {
+        if (!partialSpan) {
+          // Create a new partial transcript span if it doesn't exist
+          partialSpan = document.createElement('span')
+          partialSpan.className = 'partial'
+          transcriptionDiv.appendChild(partialSpan)
+        }
+
+        // Update the textContent of the partial transcript span
+        partialSpan.textContent = partialTranscript + ' '
+        // Auto-scroll to the bottom
+        transcriptionDiv.scrollTop = transcriptionDiv.scrollHeight
+      }
+
+      // Function to append final transcript
+      function appendFinalTranscript(transcript) {
+        // Remove the partial transcript span if it exists
+        if (partialSpan) {
+          partialSpan.remove()
+          partialSpan = null
+        }
+
+        // Append the final transcript
+        const finalSpan = document.createElement('span')
+        finalSpan.className = 'final'
+        finalSpan.textContent = transcript + ' '
+        transcriptionDiv.appendChild(finalSpan)
+        // Auto-scroll to the bottom
+        transcriptionDiv.scrollTop = transcriptionDiv.scrollHeight
+      }
+
+      // Function to display errors
+      function displayError(message) {
+        errorMessageDiv.textContent = message
+      }
+
+      // Function to downsample the audio buffer
+      function downsampleBuffer(buffer, sampleRate, outSampleRate) {
+        if (outSampleRate >= sampleRate) {
+          return buffer
+        }
+        const sampleRateRatio = sampleRate / outSampleRate
+        const newLength = Math.round(buffer.length / sampleRateRatio)
+        const result = new Float32Array(newLength)
+        let offsetResult = 0
+        let offsetBuffer = 0
+        while (offsetResult < result.length) {
+          const nextOffsetBuffer = Math.round(
+            (offsetResult + 1) * sampleRateRatio,
+          )
+          let accum = 0,
+            count = 0
+          for (
+            let i = offsetBuffer;
+            i < nextOffsetBuffer && i < buffer.length;
+            i++
+          ) {
+            accum += buffer[i]
+            count++
+          }
+          result[offsetResult] = accum / count
+          offsetResult++
+          offsetBuffer = nextOffsetBuffer
+        }
+        return result
+      }
+
+      // Function to convert float audio data to 16-bit PCM
+      function floatTo16BitPCM(input) {
+        const buffer = new ArrayBuffer(input.length * 2)
+        const output = new DataView(buffer)
+        for (let i = 0; i < input.length; i++) {
+          let s = Math.max(-1, Math.min(1, input[i]))
+          output.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true)
+        }
+        return buffer
+      }
+    </script>
+  </body>
 </html>
