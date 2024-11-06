@@ -1,23 +1,19 @@
 // server.js
 
-import { WebSocketServer } from 'ws';
 import {
   LanguageCode,
+  MediaEncoding,
   StartStreamTranscriptionCommand,
   TranscribeStreamingClient
 } from '@aws-sdk/client-transcribe-streaming';
 import { fromEnv } from '@aws-sdk/credential-providers';
 import 'dotenv/config';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
+import { WebSocketServer } from 'ws';
+import logger from './logger.js';
 
 /* ==========================
    Configuration and Setup
    ========================== */
-
-// Polyfill for __dirname in ES modules
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 
 // AWS Configuration
 const REGION = process.env.AWS_REGION || 'eu-central-1'; // Replace with your AWS region
@@ -29,8 +25,8 @@ const PORT = process.env.PORT || 8080;
 const AUTH_TOKEN = process.env.AUTH_TOKEN || 'your-hardcoded-auth-token'; // Replace with your secure token
 
 // Define default transcription settings
-const DEFAULT_LANGUAGE_CODE = 'en-US';
-const DEFAULT_MEDIA_ENCODING = 'pcm';
+const DEFAULT_LANGUAGE_CODE = LanguageCode.EN_US;
+const DEFAULT_MEDIA_ENCODING = MediaEncoding.PCM;
 const DEFAULT_MEDIA_SAMPLE_RATE_HERTZ = 16000;
 const DEFAULT_SHOW_SPEAKER_LABEL = false;
 
@@ -43,7 +39,7 @@ const transcribeClient = new TranscribeStreamingClient({
 // Initialize WebSocket Server
 const wss = new WebSocketServer({ port: PORT });
 
-console.log(`WebSocket Server is listening on port ${PORT}`);
+logger.info(`WebSocket Server is listening on port ${PORT}`);
 
 /* ==========================
    Helper Functions
@@ -71,13 +67,14 @@ const createAudioStream = async function* (ws) {
 
   ws.on('message', (message) => {
     if (Buffer.isBuffer(message)) {
+      logger.debug(`Received audio chunk of size: ${message.byteLength} bytes`);
       messageQueue.push(message);
       if (resolvePromise) {
         resolvePromise();
         resolvePromise = null;
       }
     } else {
-      console.warn('Received non-buffer message; ignoring.');
+      logger.warn(`Received non-buffer message; ignoring. Message: ${message}`);
     }
   });
 
@@ -89,7 +86,7 @@ const createAudioStream = async function* (ws) {
     }
   });
 
-  while (!isClosed || messageQueue.length > 0) {
+  while (true) {
     while (messageQueue.length > 0) {
       const chunk = messageQueue.shift();
       yield { AudioEvent: { AudioChunk: chunk } };
@@ -120,27 +117,88 @@ const handleTranscriptionStream = async (transcriptStream, ws) => {
 
           if (transcript) {
             if (result.IsPartial) {
-              console.log('Partial transcript:', transcript);
+              logger.debug(`Partial transcript: ${transcript}`);
               ws.send(JSON.stringify({ partialTranscript: transcript }));
             } else {
-              console.log('Final transcript:', transcript);
+              logger.info(`Final transcript: ${transcript}`);
               ws.send(JSON.stringify({ transcript }));
             }
           } else {
-            console.warn('Received result without transcript:', result);
+            logger.warn(`Received result without transcript: ${JSON.stringify(result)}`);
           }
         });
       } else {
-        console.error('Unexpected event structure:', event);
+        logger.error(`Unexpected event structure: ${JSON.stringify(event)}`);
       }
     }
   } catch (error) {
-    console.error('Error in transcription stream:', error);
+    logger.error(`Error in transcription stream: ${error}`);
     if (ws.readyState === ws.OPEN) {
       ws.send(JSON.stringify({ error: 'Error in transcription stream' }));
       ws.close(1011, 'Internal server error');
     }
   }
+};
+
+/**
+ * Verifies the query parameters from the URL and extracts transcription parameters.
+ * @param {URL} url - The URL object containing query parameters.
+ * @param {WebSocket} ws - The WebSocket connection.
+ * @param {string} ip - The IP address of the client.
+ * @returns {Object} - The transcription parameters.
+ */
+const verifyQueryParams = (url, ws, ip) => {
+  const token = url.searchParams.get('token');
+  if (token !== AUTH_TOKEN) {
+    logger.warn(`Authentication failed for client from IP: ${ip}. Reason: Invalid token`);
+    ws.close(1008, 'Authentication failed'); // 1008: Policy Violation
+    return;
+  }
+
+  logger.info(`Authentication successful for client from IP: ${ip}`);
+
+  const params = {};
+
+  // Extract additional transcription parameters
+  const languageCode = url.searchParams.get('language') || DEFAULT_LANGUAGE_CODE;
+  const mediaEncoding = url.searchParams.get('encoding') || DEFAULT_MEDIA_ENCODING;
+  const mediaSampleRateHertz = parseInt(url.searchParams.get('sampleRate'), 10) || DEFAULT_MEDIA_SAMPLE_RATE_HERTZ;
+  const showSpeakerLabel = url.searchParams.get('speakerLabel') === 'true' ? true : DEFAULT_SHOW_SPEAKER_LABEL;
+
+  logger.info(`Transcription parameters: Language=${languageCode}, Encoding=${mediaEncoding}, SampleRate=${mediaSampleRateHertz}, SpeakerLabel=${showSpeakerLabel}`);
+
+  // Check language code
+  if (!Object.values(LanguageCode).includes(languageCode)) {
+    logger.warn(`Invalid language code: ${languageCode}`);
+    ws.close(1008, 'Invalid language code');
+    return;
+  }
+
+  params.LanguageCode = languageCode;
+
+  // Check media encoding
+  if (!Object.values(MediaEncoding).includes(mediaEncoding)) {
+    logger.warn(`Invalid media encoding: ${mediaEncoding}`);
+    ws.close(1008, 'Invalid media encoding');
+    return;
+  }
+
+  params.MediaEncoding = mediaEncoding;
+
+  // Check sample rate
+  if (mediaSampleRateHertz < 8000 || mediaSampleRateHertz > 48000) {
+    logger.warn(`Invalid sample rate: ${mediaSampleRateHertz}`);
+    ws.close(1008, 'Invalid sample rate');
+    return;
+  }
+
+  params.MediaSampleRateHertz = mediaSampleRateHertz;
+
+  if (showSpeakerLabel) {
+    params.ShowSpeakerLabel = showSpeakerLabel;
+  }
+
+  return params;
 };
 
 /* ==========================
@@ -149,49 +207,34 @@ const handleTranscriptionStream = async (transcriptStream, ws) => {
 
 wss.on('connection', async (ws, req) => {
   const ip = req.socket.remoteAddress;
+  logger.info(`New connection from IP: ${ip}`);
 
   // Parse the URL to extract the token from query parameters
   const url = new URL(req.url, `http://${req.headers.host}`);
-  const token = url.searchParams.get('token');
+  logger.debug(`Parsed URL: ${url.href}`);
+  
+  // Verify the authentication token and extract transcription parameters
+  const params = verifyQueryParams(url, ws, ip);
 
-  if (token !== AUTH_TOKEN) {
-    console.warn(`Authentication failed for client from IP: ${ip}. Invalid token.`);
-    ws.close(1008, 'Authentication failed'); // 1008: Policy Violation
-    return;
+  if (!params) {
+    logger.warn(`Connection terminated for IP: ${ip} due to invalid parameters`);
+    return; // Terminate connection if params are invalid
   }
 
-  console.log(`Authentication successful for client from IP: ${ip}`);
-
-  // Extract additional transcription parameters
-  const languageCode = url.searchParams.get('language') || DEFAULT_LANGUAGE_CODE;
-  const mediaEncoding = url.searchParams.get('encoding') || DEFAULT_MEDIA_ENCODING;
-  const mediaSampleRateHertz = parseInt(url.searchParams.get('sampleRate'), 10) || DEFAULT_MEDIA_SAMPLE_RATE_HERTZ;
-  const showSpeakerLabel = url.searchParams.get('speakerLabel') === 'true' ? true : DEFAULT_SHOW_SPEAKER_LABEL;
-
-  console.log(`Transcription parameters: Language=${languageCode}, Encoding=${mediaEncoding}, SampleRate=${mediaSampleRateHertz}, SpeakerLabel=${showSpeakerLabel}`);
-
-
   try {
-    // Create a single audio stream generator
-    const audioStream = createAudioStream(ws);
+    params.AudioStream = createAudioStream(ws);
 
     // Configure AWS Transcribe Command with the same audioStream
-    const command = new StartStreamTranscriptionCommand({
-      LanguageCode: languageCode,
-      MediaEncoding: mediaEncoding,
-      MediaSampleRateHertz: mediaSampleRateHertz,
-      AudioStream: audioStream, // Use the single generator
-      ShowSpeakerLabel: showSpeakerLabel,
-    });
+    const command = new StartStreamTranscriptionCommand(params);
 
     // Start transcription
     const response = await transcribeClient.send(command);
-    console.log('Transcription started successfully');
+    logger.info('Transcription started successfully');
 
     // Handle transcription results
     handleTranscriptionStream(response.TranscriptResultStream, ws);
   } catch (error) {
-    console.error('Error starting transcription:', error);
+    logger.error(`Error starting transcription: ${error}`);
     if (ws.readyState === ws.OPEN) {
       ws.send(JSON.stringify({ error: 'Error starting transcription' }));
       ws.close(1011, 'Internal server error');
@@ -200,12 +243,12 @@ wss.on('connection', async (ws, req) => {
 
   // Handle client disconnection
   ws.on('close', (code, reason) => {
-    console.log(`Client from IP: ${ip} disconnected (code: ${code}, reason: ${reason})`);
+    logger.info(`Client from IP: ${ip} disconnected (code: ${code}, reason: ${reason})`);
   });
 
   // Handle unforeseen errors
   ws.on('error', (error) => {
-    console.error(`WebSocket error for client from IP: ${ip}:`, error);
+    logger.error(`WebSocket error for client from IP: ${ip}: ${error}`);
   });
 });
 
@@ -217,15 +260,15 @@ wss.on('connection', async (ws, req) => {
  * Handles graceful shutdown on receiving termination signals.
  */
 const gracefulShutdown = () => {
-  console.log('Shutting down server...');
+  logger.info('Shutting down server...');
   wss.close(() => {
-    console.log('WebSocket Server closed');
+    logger.info('WebSocket Server closed');
     process.exit(0);
   });
 
   // Force shutdown after 10 seconds
   setTimeout(() => {
-    console.error('Forcing server shutdown');
+    logger.error('Forcing server shutdown');
     process.exit(1);
   }, 10000);
 };
