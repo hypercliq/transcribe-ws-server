@@ -65,8 +65,13 @@ const options = {
 
 // Create an HTTPS server
 const server = https.createServer(options, (request, response) => {
-  response.writeHead(200)
-  response.end('WebSocket Server is running')
+  if (request.method === 'GET' && request.url === '/health') {
+    response.writeHead(200, { 'Content-Type': 'application/json' });
+    response.end(JSON.stringify({ status: 'ok' }));
+  } else {
+    response.writeHead(404);
+    response.end();
+  }
 })
 
 // Initialize WebSocket Server
