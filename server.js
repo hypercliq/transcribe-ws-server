@@ -26,7 +26,7 @@ const PORT = process.env.PORT
 // Authentication Token
 const AUTH_TOKEN = process.env.AUTH_TOKEN
 
-// Configuration validation at startup
+// Validate required environment variables
 if (!REGION) {
   logger.error('AWS_REGION environment variable is not set')
   throw new Error('Configuration Error')
@@ -46,7 +46,7 @@ if (!AUTH_TOKEN) {
 const MAX_CONNECTIONS = 100
 const TRANSCRIBE_TIMEOUT_MS = 30_000 // 30 seconds
 
-// Define default transcription settings
+// Default transcription settings
 const DEFAULT_LANGUAGE_CODE = LanguageCode.EN_US
 const DEFAULT_MEDIA_ENCODING = MediaEncoding.PCM
 const DEFAULT_MEDIA_SAMPLE_RATE_HERTZ = 16_000
@@ -58,34 +58,38 @@ const transcribeClient = new TranscribeStreamingClient({
   credentials: fromEnv(),
 })
 
+// HTTPS server options with SSL certificates
 const options = {
   key: fs.readFileSync('server.key'),
   cert: fs.readFileSync('server.cert'),
 }
 
-// Create an HTTPS server
+// Create an HTTPS server with a health check endpoint
 const server = https.createServer(options, (request, response) => {
   if (request.method === 'GET' && request.url === '/health') {
-    response.writeHead(200, { 'Content-Type': 'application/json' });
-    response.end(JSON.stringify({ status: 'ok' }));
+    response.writeHead(200, { 'Content-Type': 'application/json' })
+    response.end(JSON.stringify({ status: 'ok' }))
   } else {
-    response.writeHead(404);
-    response.end();
+    response.writeHead(404)
+    response.end()
   }
 })
 
 // Initialize WebSocket Server
 const wss = new WebSocketServer({ server })
 
-logger.info(`WebSocket Server is listening on port ${PORT}`)
-
-// Initialize connection counter
+// Connection counter
 let connectionCount = 0
 
 /* ==========================
    Helper Functions
    ========================== */
 
+/**
+ * Creates an asynchronous generator that yields audio chunks received from the client.
+ * @param {WebSocket} ws - The WebSocket connection.
+ * @param {Logger} clientLogger - Logger instance for the client.
+ */
 const createAudioStream = async function* (ws, clientLogger) {
   const messageQueue = []
   let isClosed = false
@@ -130,7 +134,6 @@ const createAudioStream = async function* (ws, clientLogger) {
   }
 
   ws.on('message', messageHandler)
-
   ws.on('close', closeHandler)
 
   try {
@@ -158,6 +161,12 @@ const createAudioStream = async function* (ws, clientLogger) {
   }
 }
 
+/**
+ * Handles the transcription stream from AWS Transcribe and sends results to the client.
+ * @param {AsyncIterable} transcriptStream - The transcription result stream.
+ * @param {WebSocket} ws - The WebSocket connection.
+ * @param {Logger} clientLogger - Logger instance for the client.
+ */
 const handleTranscriptionStream = async (
   transcriptStream,
   ws,
@@ -172,6 +181,12 @@ const handleTranscriptionStream = async (
   }
 }
 
+/**
+ * Processes individual transcription events.
+ * @param {Object} event - The transcription event.
+ * @param {WebSocket} ws - The WebSocket connection.
+ * @param {Logger} clientLogger - Logger instance for the client.
+ */
 const processTranscriptEvent = async (event, ws, clientLogger) => {
   const results = event.TranscriptEvent?.Transcript?.Results
 
@@ -184,6 +199,12 @@ const processTranscriptEvent = async (event, ws, clientLogger) => {
   }
 }
 
+/**
+ * Processes individual transcription results and sends them to the client.
+ * @param {Object} result - The transcription result.
+ * @param {WebSocket} ws - The WebSocket connection.
+ * @param {Logger} clientLogger - Logger instance for the client.
+ */
 const processTranscriptResult = async (result, ws, clientLogger) => {
   const transcript = result.Alternatives[0]?.Transcript
 
@@ -200,6 +221,12 @@ const processTranscriptResult = async (result, ws, clientLogger) => {
   }
 }
 
+/**
+ * Handles errors that occur during transcription.
+ * @param {Error} error - The error that occurred.
+ * @param {WebSocket} ws - The WebSocket connection.
+ * @param {Logger} clientLogger - Logger instance for the client.
+ */
 const handleTranscriptionError = (error, ws, clientLogger) => {
   clientLogger.error(`Error in transcription stream: ${error.message}`, {
     stack: error.stack,
@@ -210,6 +237,12 @@ const handleTranscriptionError = (error, ws, clientLogger) => {
   }
 }
 
+/**
+ * Validates query parameters from the client's connection URL.
+ * @param {URL} url - The URL object from the client's request.
+ * @param {Logger} clientLogger - Logger instance for the client.
+ * @returns {Object} - An object containing isValid and value properties.
+ */
 const validateQueryParameters = (url, clientLogger) => {
   const queryParameters = Object.fromEntries(url.searchParams.entries())
   const { error, value } = querySchema.validate(queryParameters)
@@ -223,7 +256,7 @@ const validateQueryParameters = (url, clientLogger) => {
   return { isValid: true, value }
 }
 
-// Define the schema
+// Define the schema for query parameter validation
 const querySchema = Joi.object({
   token: Joi.string().required().valid(AUTH_TOKEN),
   language: Joi.string()
@@ -261,10 +294,10 @@ wss.on('connection', async (ws, request) => {
   const clientLogger = logWithIP(ip)
   clientLogger.info('New connection')
 
-  // Initialize AbortController
+  // Initialize AbortController for request cancellation
   const abortController = new AbortController()
 
-  // Set up WebSocket event handlers immediately
+  // Handle WebSocket close event
   ws.on('close', (code, reason) => {
     connectionCount--
     clientLogger.info(`Client disconnected (code: ${code}, reason: ${reason})`)
@@ -273,6 +306,7 @@ wss.on('connection', async (ws, request) => {
     }
   })
 
+  // Handle WebSocket error event
   ws.on('error', (error) => {
     clientLogger.error(`WebSocket error: ${error.message}`, {
       stack: error.stack,
@@ -293,7 +327,7 @@ wss.on('connection', async (ws, request) => {
       return
     }
 
-    // Build parameters from validated values
+    // Build parameters for AWS Transcribe
     const parameters = {
       LanguageCode: value.language,
       MediaEncoding: value.encoding,
@@ -320,12 +354,12 @@ wss.on('connection', async (ws, request) => {
     }, TRANSCRIBE_TIMEOUT_MS)
 
     try {
-      // Send the command with the abort signal
+      // Send the transcription command with abort signal
       const response = await transcribeClient.send(command, {
         abortSignal: abortController.signal,
       })
 
-      clearTimeout(timeout) // Clear the timeout if the request completes successfully
+      clearTimeout(timeout) // Clear timeout upon success
 
       clientLogger.info('Transcription started successfully')
 
@@ -360,6 +394,7 @@ wss.on('connection', async (ws, request) => {
    Graceful Shutdown
    ========================== */
 
+// Handles server shutdown gracefully
 const gracefulShutdown = () => {
   logger.info('Shutting down server...')
   wss.close(() => {
@@ -390,14 +425,15 @@ process.on('uncaughtException', (error) => {
 process.on('SIGTERM', gracefulShutdown)
 process.on('SIGINT', gracefulShutdown)
 
-// Monitor memory usage at regular intervals
+// Log memory usage at regular intervals
 setInterval(() => {
   const memoryUsage = process.memoryUsage()
   logger.info(
     `Memory Usage: RSS=${memoryUsage.rss}, HeapTotal=${memoryUsage.heapTotal}, HeapUsed=${memoryUsage.heapUsed}, External=${memoryUsage.external}`,
   )
-}, 60_000) // Log memory usage every 60 seconds
+}, 60_000) // Every 60 seconds
 
+// Start the server
 server.listen(PORT, () => {
   logger.info(`WebSocket Server is running on port ${PORT}`)
 })
