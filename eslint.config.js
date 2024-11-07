@@ -4,7 +4,7 @@ import eslintPluginUnicorn from 'eslint-plugin-unicorn'
 
 /** @type {import('eslint').Linter.Config[]} */
 export default [
-  { ignores: ['client/*'] },
+  { ignores: ['.client/'] },
   { languageOptions: { globals: { ...globals.browser, ...globals.node } } },
   pluginJs.configs.recommended,
   eslintPluginUnicorn.configs['flat/recommended'],
