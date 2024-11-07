@@ -15,7 +15,7 @@ import { AbortController } from '@aws-sdk/abort-controller'
 // Initialize AWS Transcribe Client
 const transcribeClient = new TranscribeStreamingClient({
   region: config.aws.region,
-  credentials: fromEnv(),
+  credentials: fromEnv(), // Use environment variables for credentials
 })
 
 // Create an HTTP server with a health check endpoint
