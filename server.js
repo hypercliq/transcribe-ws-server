@@ -49,7 +49,7 @@ const TRANSCRIBE_TIMEOUT_MS = 30_000 // 30 seconds
 const DEFAULT_LANGUAGE_CODE = LanguageCode.EN_US
 const DEFAULT_MEDIA_ENCODING = MediaEncoding.PCM
 const DEFAULT_MEDIA_SAMPLE_RATE_HERTZ = 16_000
-const DEFAULT_SHOW_SPEAKER_LABEL = false
+const DEFAULT_SEND_PARTIALS = true
 
 // Initialize AWS Transcribe Client
 const transcribeClient = new TranscribeStreamingClient({
@@ -159,15 +159,17 @@ const createAudioStream = async function* (ws, clientLogger) {
  * @param {AsyncIterable} transcriptStream - The transcription result stream.
  * @param {WebSocket} ws - The WebSocket connection.
  * @param {Logger} clientLogger - Logger instance for the client.
+ * @param {boolean} sendPartials - Whether to send partial transcripts.
  */
 const handleTranscriptionStream = async (
   transcriptStream,
   ws,
   clientLogger,
+  sendPartials,
 ) => {
   try {
     for await (const event of transcriptStream) {
-      await processTranscriptEvent(event, ws, clientLogger)
+      await processTranscriptEvent(event, ws, clientLogger, sendPartials)
     }
   } catch (error) {
     handleTranscriptionError(error, ws, clientLogger)
@@ -179,13 +181,19 @@ const handleTranscriptionStream = async (
  * @param {Object} event - The transcription event.
  * @param {WebSocket} ws - The WebSocket connection.
  * @param {Logger} clientLogger - Logger instance for the client.
+ * @param {boolean} sendPartials - Whether to send partial transcripts.
  */
-const processTranscriptEvent = async (event, ws, clientLogger) => {
+const processTranscriptEvent = async (
+  event,
+  ws,
+  clientLogger,
+  sendPartials,
+) => {
   const results = event.TranscriptEvent?.Transcript?.Results
 
   if (results) {
     for (const result of results) {
-      await processTranscriptResult(result, ws, clientLogger)
+      await processTranscriptResult(result, ws, clientLogger, sendPartials)
     }
   } else {
     clientLogger.error('Unexpected event structure.')
@@ -197,17 +205,25 @@ const processTranscriptEvent = async (event, ws, clientLogger) => {
  * @param {Object} result - The transcription result.
  * @param {WebSocket} ws - The WebSocket connection.
  * @param {Logger} clientLogger - Logger instance for the client.
+ * @param {boolean} sendPartials - Whether to send partial transcripts.
  */
-const processTranscriptResult = async (result, ws, clientLogger) => {
+const processTranscriptResult = async (
+  result,
+  ws,
+  clientLogger,
+  sendPartials,
+) => {
   const transcript = result.Alternatives[0]?.Transcript
 
   if (transcript) {
-    if (result.IsPartial) {
+    if (!result.IsPartial) {
+      clientLogger.info(`Final transcript: ${transcript}`)
+      ws.send(JSON.stringify({ transcript }))
+    } else if (sendPartials) {
       clientLogger.debug(`Partial transcript: ${transcript}`)
       ws.send(JSON.stringify({ partialTranscript: transcript }))
     } else {
-      clientLogger.info(`Final transcript: ${transcript}`)
-      ws.send(JSON.stringify({ transcript }))
+      clientLogger.debug('Partial transcripts are disabled.')
     }
   } else {
     clientLogger.warn('Received result without transcript.')
@@ -263,10 +279,10 @@ const querySchema = Joi.object({
     .min(8000)
     .max(48_000)
     .default(DEFAULT_MEDIA_SAMPLE_RATE_HERTZ),
-  speakerLabel: Joi.boolean()
+  sendPartials: Joi.boolean()
     .truthy('true')
     .falsy('false')
-    .default(DEFAULT_SHOW_SPEAKER_LABEL),
+    .default(DEFAULT_SEND_PARTIALS),
 })
 
 /* ==========================
@@ -328,10 +344,6 @@ wss.on('connection', async (ws, request) => {
       AudioStream: createAudioStream(ws, clientLogger),
     }
 
-    if (value.speakerLabel) {
-      parameters.ShowSpeakerLabel = true
-    }
-
     const command = new StartStreamTranscriptionCommand(parameters)
 
     // Set a timeout for the AWS Transcribe request
@@ -360,6 +372,7 @@ wss.on('connection', async (ws, request) => {
         response.TranscriptResultStream,
         ws,
         clientLogger,
+        value.sendPartials,
       )
     } catch (error) {
       clientLogger.error(`Error during transcription: ${error.message}`, {

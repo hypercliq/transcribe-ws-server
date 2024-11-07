@@ -36,10 +36,14 @@ This WebSocket server provides real-time speech-to-text transcription using AWS 
    Create a `.env` file in the project root with the following variables:
 
    ```bash
+   AWS_ACCESS_KEY_ID=your-access-key-id
+   AWS_SECRET_ACCESS_KEY=your-secret-access-key
    AWS_REGION=your-aws-region
    PORT=your-server-port
-   API_TOKEN=your-api-token
+   API_TOKEN=your-api-token # for client authorization
    ```
+
+   If another AWS credential method is preferred, update the `aws-sdk` configuration in `server.js`. Right now it uses `fromEnv()`.
 
 ## Running the Server
 
@@ -74,8 +78,12 @@ The server uses `pino` for logging. Logs include:
 
 **Log Levels** can be set using the `LOG_LEVEL` environment variable (`debug`, `info`, `warn`, `error`).
 
+In development mode, logs are written to the console. In production, logs are also written to a file in JSON format.
+
 ## Environment Variables Summary
 
+- `AWS_ACCESS_KEY_ID`: AWS access key ID for Transcribe service.
+- `AWS_SECRET_ACCESS_KEY`: AWS secret access key for Transcribe service.
 - `AWS_REGION`: AWS region where Transcribe service is available.
 - `PORT`: Port number the server listens on.
 - `API_TOKEN`: Token used for client authorization.
@@ -94,8 +102,8 @@ The server handles `SIGTERM` and `SIGINT` signals to allow for graceful shutdown
 
 ## License
 
-This project is licensed under the MIT License.
+This project is licensed under the EUPL-1.2-or-later license. See the [LICENSE](LICENSE) file for details.
 
 ---
 
-*Note: Replace `your-server-address`, `your-api-token`, and other placeholders with actual values relevant to your deployment.*
+_Note: Replace `your-server-address`, `your-api-token`, and other placeholders with actual values relevant to your deployment._
