@@ -70,6 +70,10 @@ const wss = new WebSocketServer({ server })
 
 logger.info(`WebSocket Server is listening on port ${PORT}`)
 
+// Set a limit on the number of concurrent WebSocket connections
+const MAX_CONNECTIONS = 100
+let connectionCount = 0
+
 /* ==========================
    Helper Functions
    ========================== */
@@ -203,6 +207,13 @@ const querySchema = Joi.object({
    ========================== */
 
 wss.on('connection', async (ws, request) => {
+  if (connectionCount >= MAX_CONNECTIONS) {
+    logger.warn('Maximum number of connections reached. Rejecting new connection.')
+    ws.close(1013, 'Server is busy') // 1013: Try again later
+    return
+  }
+
+  connectionCount++
   const ip = request.socket.remoteAddress
   const clientLogger = logWithIP(ip)
   clientLogger.info('New connection')
@@ -212,6 +223,7 @@ wss.on('connection', async (ws, request) => {
 
   // Set up WebSocket event handlers immediately
   ws.on('close', (code, reason) => {
+    connectionCount--
     clientLogger.info(`Client disconnected (code: ${code}, reason: ${reason})`)
     if (abortController) {
       abortController.abort() // Abort the AWS Transcribe request
@@ -227,27 +239,27 @@ wss.on('connection', async (ws, request) => {
     }
   })
 
-  const url = new URL(request.url, `https://${request.headers.host}`)
-  clientLogger.debug(`Parsed URL: ${url.href}`)
-
-  const {error, value} = querySchema.validate(Object.fromEntries(url.searchParams.entries()))
-
-  if (error) {
-    clientLogger.warn(`Invalid query parameters: ${error.message}`)
-    ws.close(1008, 'Invalid query parameters')
-    return
-  }
-
-  clientLogger.info('Authentication successful')
-
-  // Build parameters from validated values
-  const parameters = {
-    LanguageCode: value.language,
-    MediaEncoding: value.encoding,
-    MediaSampleRateHertz: value.sampleRate,
-  }
-
   try {
+    const url = new URL(request.url, `https://${request.headers.host}`)
+    clientLogger.debug(`Parsed URL: ${url.href}`)
+
+    const {error, value} = querySchema.validate(Object.fromEntries(url.searchParams.entries()))
+
+    if (error) {
+      clientLogger.warn(`Invalid query parameters: ${error.message}`)
+      ws.close(1008, 'Invalid query parameters')
+      return
+    }
+
+    clientLogger.info('Authentication successful')
+
+    // Build parameters from validated values
+    const parameters = {
+      LanguageCode: value.language,
+      MediaEncoding: value.encoding,
+      MediaSampleRateHertz: value.sampleRate,
+    }
+
     parameters.AudioStream = createAudioStream(ws, clientLogger)
 
     const command = new StartStreamTranscriptionCommand(parameters)
@@ -308,6 +320,12 @@ process.on('uncaughtException', (error) => {
 
 process.on('SIGTERM', gracefulShutdown)
 process.on('SIGINT', gracefulShutdown)
+
+// Monitor memory usage at regular intervals
+setInterval(() => {
+  const memoryUsage = process.memoryUsage()
+  logger.info(`Memory Usage: RSS=${memoryUsage.rss}, HeapTotal=${memoryUsage.heapTotal}, HeapUsed=${memoryUsage.heapUsed}, External=${memoryUsage.external}`)
+}, 60_000) // Log memory usage every 60 seconds
 
 server.listen(PORT, () => {
   logger.info(`WebSocket Server is running on port ${PORT}`)
