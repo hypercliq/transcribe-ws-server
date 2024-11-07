@@ -264,18 +264,45 @@ wss.on('connection', async (ws, request) => {
 
     const command = new StartStreamTranscriptionCommand(parameters)
 
-    // Send the command with the abort signal
-    const response = await transcribeClient.send(command, {
-      abortSignal: abortController.signal,
-    })
+    let operationCompleted = false
 
-    clientLogger.info('Transcription started successfully')
+    const timeout = setTimeout(() => {
+      if (!operationCompleted) {
+        abortController.abort()
+        clientLogger.error('AWS Transcribe request timed out')
+        if (ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({ error: 'AWS Transcribe request timed out' }))
+          ws.close(1011, 'Internal server error')
+        }
+      }
+    }, 30_000) // 30 seconds timeout
 
-    await handleTranscriptionStream(
-      response.TranscriptResultStream,
-      ws,
-      clientLogger,
-    )
+    try {
+      // Send the command with the abort signal
+      const response = await transcribeClient.send(command, {
+        abortSignal: abortController.signal,
+      })
+
+      clientLogger.info('Transcription started successfully')
+
+      await handleTranscriptionStream(
+        response.TranscriptResultStream,
+        ws,
+        clientLogger,
+      )
+
+      operationCompleted = true
+    } catch (error) {
+      clientLogger.error(`Error starting transcription: ${error.message}`, {
+        stack: error.stack,
+      })
+      if (ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({ error: 'Error starting transcription' }))
+        ws.close(1011, 'Internal server error')
+      }
+    } finally {
+      clearTimeout(timeout)
+    }
   } catch (error) {
     clientLogger.error(`Error starting transcription: ${error.message}`, {
       stack: error.stack,
