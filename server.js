@@ -133,36 +133,48 @@ const handleTranscriptionStream = async (
 ) => {
   try {
     for await (const event of transcriptStream) {
-      const results = event.TranscriptEvent?.Transcript?.Results
-
-      if (results) {
-        for (const result of results) {
-          const transcript = result.Alternatives[0]?.Transcript
-
-          if (transcript) {
-            if (result.IsPartial) {
-              clientLogger.debug(`Partial transcript: ${transcript}`)
-              ws.send(JSON.stringify({ partialTranscript: transcript }))
-            } else {
-              clientLogger.info(`Final transcript: ${transcript}`)
-              ws.send(JSON.stringify({ transcript }))
-            }
-          } else {
-            clientLogger.warn('Received result without transcript.')
-          }
-        }
-      } else {
-        clientLogger.error('Unexpected event structure.')
-      }
+      await processTranscriptEvent(event, ws, clientLogger)
     }
   } catch (error) {
-    clientLogger.error(`Error in transcription stream: ${error.message}`, {
-      stack: error.stack,
-    })
-    if (ws.readyState === ws.OPEN) {
-      ws.send(JSON.stringify({ error: 'Error in transcription stream' }))
-      ws.close(1011, 'Internal server error')
+    handleTranscriptionError(error, ws, clientLogger)
+  }
+}
+
+const processTranscriptEvent = async (event, ws, clientLogger) => {
+  const results = event.TranscriptEvent?.Transcript?.Results
+
+  if (results) {
+    for (const result of results) {
+      await processTranscriptResult(result, ws, clientLogger)
     }
+  } else {
+    clientLogger.error('Unexpected event structure.')
+  }
+}
+
+const processTranscriptResult = async (result, ws, clientLogger) => {
+  const transcript = result.Alternatives[0]?.Transcript
+
+  if (transcript) {
+    if (result.IsPartial) {
+      clientLogger.debug(`Partial transcript: ${transcript}`)
+      ws.send(JSON.stringify({ partialTranscript: transcript }))
+    } else {
+      clientLogger.info(`Final transcript: ${transcript}`)
+      ws.send(JSON.stringify({ transcript }))
+    }
+  } else {
+    clientLogger.warn('Received result without transcript.')
+  }
+}
+
+const handleTranscriptionError = (error, ws, clientLogger) => {
+  clientLogger.error(`Error in transcription stream: ${error.message}`, {
+    stack: error.stack,
+  })
+  if (ws.readyState === ws.OPEN) {
+    ws.send(JSON.stringify({ error: 'Error in transcription stream' }))
+    ws.close(1011, 'Internal server error')
   }
 }
 
