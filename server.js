@@ -7,8 +7,7 @@ import {
 import { fromEnv } from '@aws-sdk/credential-providers'
 import { AbortController } from '@aws-sdk/abort-controller'
 import 'dotenv/config'
-import fs from 'node:fs'
-import https from 'node:https'
+import http from 'node:http'
 import { WebSocketServer } from 'ws'
 import { logger, logWithIP } from './logger.js'
 import Joi from 'joi'
@@ -23,8 +22,8 @@ const REGION = process.env.AWS_REGION
 // Server Configuration
 const PORT = process.env.PORT
 
-// Authentication Token
-const AUTH_TOKEN = process.env.AUTH_TOKEN
+// API Token for Authorization
+const API_TOKEN = process.env.API_TOKEN
 
 // Validate required environment variables
 if (!REGION) {
@@ -37,8 +36,8 @@ if (!PORT) {
   throw new Error('Configuration Error')
 }
 
-if (!AUTH_TOKEN) {
-  logger.error('AUTH_TOKEN environment variable is not set')
+if (!API_TOKEN) {
+  logger.error('API_TOKEN environment variable is not set')
   throw new Error('Configuration Error')
 }
 
@@ -58,14 +57,8 @@ const transcribeClient = new TranscribeStreamingClient({
   credentials: fromEnv(),
 })
 
-// HTTPS server options with SSL certificates
-const options = {
-  key: fs.readFileSync('server.key'),
-  cert: fs.readFileSync('server.cert'),
-}
-
-// Create an HTTPS server with a health check endpoint
-const server = https.createServer(options, (request, response) => {
+// Create an HTTP server with a health check endpoint
+const server = http.createServer((request, response) => {
   if (request.method === 'GET' && request.url === '/health') {
     response.writeHead(200, { 'Content-Type': 'application/json' })
     response.end(JSON.stringify({ status: 'ok' }))
@@ -252,13 +245,13 @@ const validateQueryParameters = (url, clientLogger) => {
     return { isValid: false, value: undefined }
   }
 
-  clientLogger.info('Authentication successful')
+  clientLogger.info('Authorization successful')
   return { isValid: true, value }
 }
 
 // Define the schema for query parameter validation
 const querySchema = Joi.object({
-  token: Joi.string().required().valid(AUTH_TOKEN),
+  token: Joi.string().required().valid(API_TOKEN),
   language: Joi.string()
     .valid(...Object.values(LanguageCode))
     .default(DEFAULT_LANGUAGE_CODE),
@@ -317,7 +310,7 @@ wss.on('connection', async (ws, request) => {
   })
 
   try {
-    const url = new URL(request.url, `https://${request.headers.host}`)
+    const url = new URL(request.url, `http://${request.headers.host}`)
     clientLogger.debug(`Parsed URL: ${url.href}`)
 
     const { isValid, value } = validateQueryParameters(url, clientLogger)
