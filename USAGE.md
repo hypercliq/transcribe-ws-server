@@ -19,9 +19,9 @@ wss://your-server-address:PORT/?token=your-api-token&language=en-US&encoding=pcm
 - `sampleRate` (optional): Audio sample rate in Hertz (default: `16000`).
 - `sendPartials` (optional): Whether to send partial transcripts (`true` or `false`, default: `true`).
 
-### Supported Language Codes
+### Supported Language Codes, Encodings, and Sample Rates
 
-Refer to the [AWS Transcribe Streaming documentation](https://docs.aws.amazon.com/transcribe/latest/dg/API_streaming_StartStreamTranscription.html#API_streaming_StartStreamTranscription_RequestParameters) for supported language codes.
+Refer to the [AWS Transcribe Streaming documentation](https://docs.aws.amazon.com/transcribe/latest/dg/API_streaming_StartStreamTranscription.html#API_streaming_StartStreamTranscription_RequestParameters) for supported language codes, encodings, and sample rates.
 
 ### Example Connection String
 

@@ -41,6 +41,7 @@ This WebSocket server provides real-time speech-to-text transcription using AWS 
    AWS_REGION=your-aws-region
    PORT=your-server-port
    API_TOKEN=your-api-token # for client authorization
+   LOG_LEVEL=info # optional: debug, info, warn, error
    ```
 
    If another AWS credential method is preferred, update the `aws-sdk` configuration in `server.js`. Right now it uses `fromEnv()`.
@@ -50,7 +51,7 @@ This WebSocket server provides real-time speech-to-text transcription using AWS 
 Start the server with:
 
 ```bash
-node server.js
+npm start
 ```
 
 The server will listen on the port specified in the `PORT` environment variable.
