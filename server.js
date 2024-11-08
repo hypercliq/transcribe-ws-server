@@ -10,7 +10,7 @@ import {
   TranscribeStreamingClient,
 } from '@aws-sdk/client-transcribe-streaming'
 import { fromEnv } from '@aws-sdk/credential-providers'
-import { AbortController } from '@aws-sdk/abort-controller'
+import { AbortController } from 'abort-controller'
 
 // Initialize AWS Transcribe Client
 const transcribeClient = new TranscribeStreamingClient({

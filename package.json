@@ -16,7 +16,6 @@
   "dependencies": {
     "@aws-sdk/client-transcribe-streaming": "^3.686.0",
     "@aws-sdk/credential-providers": "^3.686.0",
-    "@smithy/abort-controller": "^3.1.6",
     "dotenv": "^16.4.5",
     "joi": "^17.13.3",
     "pino": "^9.5.0",
