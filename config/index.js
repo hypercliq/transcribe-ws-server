@@ -13,6 +13,7 @@ const environmentSchema = Joi.object({
   LOG_LEVEL: Joi.string()
     .valid('debug', 'info', 'warn', 'error')
     .default('info'),
+  LOG_FILE: Joi.string().default('logs/combined.log'),
   NODE_ENV: Joi.string()
     .valid('development', 'production')
     .default('development'),
@@ -32,7 +33,6 @@ if (error) {
 export default {
   aws: {
     region: environmentVariables.AWS_REGION,
-    // do not include AWS keys in a object
   },
   server: {
     port: environmentVariables.PORT,
@@ -44,6 +44,7 @@ export default {
   },
   logging: {
     level: environmentVariables.LOG_LEVEL,
+    file: environmentVariables.LOG_FILE,
   },
   environment: environmentVariables.NODE_ENV,
 }
