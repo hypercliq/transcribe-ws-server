@@ -1,9 +1,10 @@
 import pino from 'pino'
 import config from '../config/index.js'
 
-// Define transport targets
+// Define transport targets conditionally
 const targets = [
-  {
+  // Transport for development (pretty-printed logs)
+  ...(config.environment !== 'production' ? [{
     target: 'pino-pretty',
     options: {
       colorize: true,
@@ -11,27 +12,25 @@ const targets = [
       ignore: 'pid,hostname',
     },
     level: config.logging.level,
-  },
-]
+  }] : []),
 
-// Add file transport for production
-if (config.environment === 'production') {
-  targets.push({
+  // Transport for production (file-based logging)
+  ...(config.environment === 'production' ? [{
     target: 'pino/file',
     options: {
       destination: 'logs/combined.log',
       mkdir: true, // Ensure directories are created if they do not exist
     },
     level: config.logging.level,
-  })
-}
+  }] : []),
+]
 
-// Create pino transports
+// Create transport options with the defined targets
 const transportOptions = {
   targets,
 }
 
-// Initialize the logger
+// Initialize the logger with transport options
 const logger = pino(
   {
     level: config.logging.level,
