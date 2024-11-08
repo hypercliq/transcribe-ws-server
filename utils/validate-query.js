@@ -8,7 +8,9 @@ import config from '../config/index.js'
 
 // Define the schema for query parameter validation
 const querySchema = Joi.object({
-  token: Joi.string().required().valid(config.auth.apiToken),
+  token: Joi.string()
+    .required()
+    .valid(...config.auth.apiTokens), // Spread the array into valid options
   language: Joi.string()
     .valid(...Object.values(LanguageCode))
     .default(LanguageCode.EN_US),
@@ -34,6 +36,8 @@ export const validateQueryParameters = (url, clientLogger) => {
     return { isValid: false, value: undefined }
   }
 
-  clientLogger.info('Authorization successful')
+  clientLogger.info(
+    `Authorization successful for API token: ${value.token.slice(0, 5)}...`,
+  )
   return { isValid: true, value }
 }
