@@ -3,6 +3,16 @@
 This document provides information for users who want to connect to the WebSocket server for real-time speech-to-text transcription.
 Speech can be either streamed from a microphone or read from a file and sent to the server for transcription.
 
+## Types of Streaming
+
+### Real-Time Streaming
+
+In real-time streaming, clients connect to the server and stream audio data as it is being captured, typically from a microphone. The connection remains open until the user finishes speaking and closes the connection.
+
+### File Streaming
+
+In file streaming, clients stream audio data from a local file. Since the file can be streamed very quickly, clients must send an `END_OF_STREAM` message to indicate that the streaming is complete. This allows the server to handle the connection appropriately.
+
 ## Connecting to the WebSocket Server
 
 ### Connection URL Format
@@ -33,6 +43,7 @@ wss://your-server-address:PORT/?token=123abc&language=en-US&encoding=pcm&sampleR
 
 - **Format**: Send audio data as binary messages over the WebSocket connection.
 - **Chunking**: Audio data should be sent in small chunks to ensure real-time processing. A buffer size of 1024 bytes is recommended.
+- **End of Stream**: When streaming from a file, send an `END_OF_STREAM` message to indicate the end of the audio stream.
 
 ## Receiving Transcription Results
 
@@ -93,6 +104,11 @@ ws.on('open', () => {
   audioStream.on('data', (chunk) => {
     ws.send(chunk)
   })
+
+  // if streaming from a file, send END_OF_STREAM message
+  audioStream.on('end', () => {
+    ws.send('END_OF_STREAM')
+  })
 })
 
 ws.on('message', (message) => {
@@ -130,6 +146,9 @@ async def send_audio(uri):
         # For example, send audio data from microphone or a file
         async for chunk in get_audio_stream():  # Implement this function
             await websocket.send(chunk)
+
+        # if streaming from a file, send END_OF_STREAM message
+        await websocket.send("END_OF_STREAM")
 
         async for message in websocket:
             data = json.loads(message)
