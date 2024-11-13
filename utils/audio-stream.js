@@ -50,7 +50,7 @@ export const createAudioStream = async function* (ws, clientLogger) {
 
   const closeHandler = () => {
     isClosed = true
-    clientLogger.warn('WebSocket connection closed.')
+    clientLogger.debug('WebSocket connection closed.')
     if (resolvePromise) {
       resolvePromise = undefined
     }
