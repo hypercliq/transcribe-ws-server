@@ -33,13 +33,17 @@ export const createAudioStream = async function* (ws, clientLogger) {
           resolvePromise()
           resolvePromise = undefined
         }
-      } else {
+      } else if (message.toString() === 'END_OF_STREAM') {
         clientLogger.debug('Received end-of-stream message from client.')
         endStreamReceived = true
         if (resolvePromise) {
           resolvePromise()
           resolvePromise = undefined
         }
+      } else {
+        clientLogger.warn(`Received unknown message: ${message}`)
+        // notify the client that the message is unknown
+        ws.send(`Unknown message: ${message}`)
       }
     } catch (error) {
       clientLogger.error(`Error processing message: ${error.message}`, {
