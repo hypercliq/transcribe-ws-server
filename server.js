@@ -183,9 +183,11 @@ process.on('SIGINT', gracefulShutdown)
 // Log memory usage at regular intervals
 setInterval(() => {
   const memoryUsage = process.memoryUsage()
-  logger.info(
-    `Memory Usage: RSS=${memoryUsage.rss}, HeapTotal=${memoryUsage.heapTotal}, HeapUsed=${memoryUsage.heapUsed}, External=${memoryUsage.external}`,
-  )
+  // if memory is over 100MB, log it
+  if (memoryUsage.rss > 100_000_000)
+    logger.warn(
+      `Memory Usage: RSS=${memoryUsage.rss}, HeapTotal=${memoryUsage.heapTotal}, HeapUsed=${memoryUsage.heapUsed}, External=${memoryUsage.external}`,
+    )
 }, 60_000) // Every 60 seconds
 
 // Start the server
