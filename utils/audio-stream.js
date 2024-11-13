@@ -1,7 +1,6 @@
-// utils/audioStream.js
-
 /**
  * Creates an asynchronous generator that yields audio chunks received from the client.
+ * Ends the generator when an end-of-stream message is received.
  * @param {WebSocket} ws - The WebSocket connection.
  * @param {Logger} clientLogger - Logger instance for the client.
  * @returns {AsyncGenerator} - Yields audio chunks.
@@ -11,6 +10,9 @@ export const createAudioStream = async function* (ws, clientLogger) {
   let isClosed = false
   let resolvePromise
   let isResolving = false
+  let endStreamReceived = false
+
+  ws.binaryType = 'arraybuffer'
 
   const waitForMessage = () => {
     if (isResolving) return
@@ -22,17 +24,22 @@ export const createAudioStream = async function* (ws, clientLogger) {
 
   const messageHandler = (message) => {
     try {
-      if (Buffer.isBuffer(message)) {
+      if (message instanceof ArrayBuffer) {
         clientLogger.debug(
           `Received audio chunk of size: ${message.byteLength} bytes`,
         )
-        messageQueue.push(message)
+        messageQueue.push(Buffer.from(message))
         if (resolvePromise) {
           resolvePromise()
           resolvePromise = undefined
         }
       } else {
-        clientLogger.warn('Received non-buffer message; ignoring.')
+        clientLogger.debug('Received end-of-stream message from client.')
+        endStreamReceived = true
+        if (resolvePromise) {
+          resolvePromise()
+          resolvePromise = undefined
+        }
       }
     } catch (error) {
       clientLogger.error(`Error processing message: ${error.message}`, {
@@ -43,8 +50,8 @@ export const createAudioStream = async function* (ws, clientLogger) {
 
   const closeHandler = () => {
     isClosed = true
+    clientLogger.warn('WebSocket connection closed.')
     if (resolvePromise) {
-      resolvePromise()
       resolvePromise = undefined
     }
   }
@@ -59,7 +66,16 @@ export const createAudioStream = async function* (ws, clientLogger) {
         yield { AudioEvent: { AudioChunk: chunk } }
       }
 
+      if (endStreamReceived) {
+        clientLogger.debug('End of audio stream detected.')
+        yield { AudioEvent: { AudioChunk: Buffer.alloc(0) } } // send empty buffer to signal end of stream
+        break // Exit the generator
+      }
+
       if (isClosed) {
+        clientLogger.warn(
+          'WebSocket connection closed before end-of-stream message.',
+        )
         break
       }
 

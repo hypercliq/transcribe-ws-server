@@ -16,6 +16,13 @@ export const handleTranscriptionStream = async (
     for await (const event of transcriptStream) {
       await processTranscriptEvent(event, ws, clientLogger, sendPartials)
     }
+
+    if (ws.readyState === ws.OPEN) {
+      clientLogger.info(
+        'Transcription stream ended. Closing WebSocket connection with client.',
+      )
+      ws.close(1000, 'Transcription stream ended') // 1000: Normal closure
+    }
   } catch (error) {
     handleTranscriptionError(error, ws, clientLogger)
   }
