@@ -151,18 +151,42 @@ wss.on('connection', async (ws, request) => {
 // Handles server shutdown gracefully
 const gracefulShutdown = () => {
   logger.info('Shutting down server...')
-  wss.close(() => {
-    logger.info('WebSocket Server closed')
-    // eslint-disable-next-line unicorn/no-process-exit
-    process.exit(0)
-  })
 
-  // Force shutdown after 10 seconds
+  // Notify all connected clients about the shutdown
+  for (const client of wss.clients) {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(JSON.stringify({ error: 'Server is shutting down' }))
+      client.close(1001, 'Server is shutting down') // 1001: Going away
+    }
+  }
+
+  // Wait for a short period to allow clients to disconnect gracefully
   setTimeout(() => {
-    logger.error('Forcing server shutdown')
-    // eslint-disable-next-line unicorn/no-process-exit
-    process.exit(1)
-  }, 10_000)
+    // Abort any ongoing AWS Transcribe requests
+    for (const client of wss.clients) {
+      if (client.abortController && !client.abortController.signal.aborted) {
+        client.abortController.abort()
+      }
+    }
+
+    // Close the WebSocket server
+    wss.close(() => {
+      logger.info('WebSocket Server closed')
+      // Close the HTTP server
+      server.close(() => {
+        logger.info('HTTP Server closed')
+        // eslint-disable-next-line unicorn/no-process-exit
+        process.exit(0)
+      })
+    })
+
+    // Force shutdown after 10 seconds
+    setTimeout(() => {
+      logger.error('Forcing server shutdown')
+      // eslint-disable-next-line unicorn/no-process-exit
+      process.exit(1)
+    }, 10_000)
+  }, 5000) // Wait 5 seconds for clients to disconnect
 }
 
 // Global error handlers
