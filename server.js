@@ -48,7 +48,7 @@ wss.on('connection', async (ws, request) => {
   }
 
   connectionCount++
-  const ip = request.socket.remoteAddress
+  const ip = request.headers['x-forwarded-for'] || request.socket.remoteAddress
   const clientLogger = logWithIP(ip)
   clientLogger.info('New connection')
 
