@@ -1,171 +1,158 @@
-# Using the WebSocket Server for AWS Transcribe Streaming
+# Client protocol and examples
 
-This document provides information for users who want to connect to the WebSocket server for real-time speech-to-text transcription.
-Speech can be either streamed from a microphone or read from a file and sent to the server for transcription.
+Clients can stream microphone audio or an existing recording through the same WebSocket protocol. Both should finish by sending the text message `END_OF_STREAM` and keeping the socket open to receive final transcripts. Closing the socket instead cancels transcription and can lose the final words.
 
-## Types of Streaming
+## Connect
 
-### Real-Time Streaming
+Local development uses plain WebSocket:
 
-In real-time streaming, clients connect to the server and stream audio data as it is being captured, typically from a microphone. The connection remains open until the user finishes speaking and closes the connection.
-
-### File Streaming
-
-In file streaming, clients stream audio data from a local file. Since the file can be streamed very quickly, clients must send an `END_OF_STREAM` message to indicate that the streaming is complete. This allows the server to handle the connection appropriately.
-
-## Connecting to the WebSocket Server
-
-### Connection URL Format
-
-```plaintext
-wss://your-server-address:PORT/?token=your-api-token&language=en-US&encoding=pcm&sampleRate=16000&sendPartials=true
+```text
+ws://localhost:3000/?token=your-api-token&language=en-US&encoding=pcm&sampleRate=16000&sendPartials=true
 ```
 
-### Query Parameters
+Use `wss://your-host/` when TLS is provided by a reverse proxy or load balancer. The server itself does not terminate TLS. The token in the URL must match an entry in the server's `API_TOKENS` array. Build query strings with `URLSearchParams` or an equivalent encoder so characters such as `+`, `&`, and `#` are preserved.
 
-- `token` (required): API token matching the server configuration.
-- `language` (optional): Language code for transcription (default: `en-US`).
-- `encoding` (optional): Audio encoding format (default: `pcm`).
-- `sampleRate` (optional): Audio sample rate in Hertz (default: `16000`).
-- `sendPartials` (optional): Whether to send partial transcripts (`true` or `false`, default: `true`).
+| Parameter      | Required | Default | Meaning                                                |
+| -------------- | -------- | ------- | ------------------------------------------------------ |
+| `token`        | Yes      | —       | Configured API token.                                  |
+| `language`     | No       | `en-US` | Language code recognized by the installed AWS SDK.     |
+| `encoding`     | No       | `pcm`   | AWS streaming encoding: `pcm`, `flac`, or `ogg-opus`.  |
+| `sampleRate`   | No       | `16000` | Integer sample rate from 8000 to 48000 Hz.             |
+| `sendPartials` | No       | `true`  | Whether to receive partial results (`true` / `false`). |
 
-### Supported Language Codes, Encodings, and Sample Rates
+Unknown query parameters are accepted but are not forwarded as AWS options. AWS can still reject a language/region/format combination that passes local validation. See [AWS streaming parameters](https://docs.aws.amazon.com/transcribe/latest/APIReference/API_streaming_StartStreamTranscription.html).
 
-Refer to the [AWS Transcribe Streaming documentation](https://docs.aws.amazon.com/transcribe/latest/dg/API_streaming_StartStreamTranscription.html#API_streaming_StartStreamTranscription_RequestParameters) for supported language codes, encodings, and sample rates.
+## Send audio and finish
 
-### Example Connection String
+1. Send audio bytes as binary WebSocket messages. The server does not convert or resample them. With `encoding=pcm`, use raw signed 16-bit little-endian PCM; a WAV header is not part of that format. The examples below assume **mono PCM at 16,000 Hz**.
+2. Pace recorded audio close to real time and receive results concurrently. For mono 16-bit PCM, a 100 ms chunk at 16,000 Hz is 3200 bytes. AWS recommends uniform chunks of roughly 50–200 ms; see [streaming best practices](https://docs.aws.amazon.com/transcribe/latest/dg/streaming.html#best-practices).
+3. When recording or playback ends, send `END_OF_STREAM` as a **text** message. Empty binary chunks are ignored. Audio sent after `END_OF_STREAM` is ignored.
+4. Keep receiving results until the server closes with `1000`. Disconnecting earlier cancels the AWS request.
 
-```plaintext
-wss://your-server-address:PORT/?token=123abc&language=en-US&encoding=pcm&sampleRate=16000&sendPartials=false
+A WebSocket message is limited to 1 MiB. Queued audio is limited to 4 MiB or 4096 chunks per connection. These are safety limits, not recommended chunk sizes. Exceeding a limit closes the connection with `1009`.
+
+## Receive results and handle errors
+
+```json
+{ "partialTranscript": "Current partial transcription..." }
 ```
 
-## Sending Audio Data
+```json
+{ "transcript": "Final transcribed text." }
+```
 
-- **Format**: Send audio data as binary messages over the WebSocket connection.
-- **Chunking**: Audio data should be sent in small chunks to ensure real-time processing. A buffer size of 1024 bytes is recommended.
-- **Limits**: Each WebSocket message may contain at most 1 MiB. The server retains at most 4 MiB or 4096 queued audio chunks per connection; exceeding either limit closes the connection with code `1009`. Pace file uploads rather than sending the whole file at once.
-- **End of Stream**: When streaming from a file, send an `END_OF_STREAM` message to indicate the end of the audio stream.
+Partial text can change. AWS controls when segments become final, and one session can produce several final segments. Suppressing partial results does not change how audio must be sent or how the stream is finished.
 
-## Receiving Transcription Results
+Errors may arrive as `{"error":"description"}` before closure. Some failures, such as invalid parameters or oversized messages, only provide a WebSocket close code and reason. Unknown control messages receive a JSON error and leave the connection open.
 
-The server will send transcription results in JSON format:
+| Close code | Meaning                                                    |
+| ---------- | ---------------------------------------------------------- |
+| `1000`     | Normal completion after the transcript stream ends.        |
+| `1001`     | Server shutting down; active transcription is cancelled.   |
+| `1008`     | Invalid URL, token, or query parameters.                   |
+| `1009`     | Audio message or buffering limit exceeded.                 |
+| `1011`     | AWS startup timeout or another transcription/server error. |
+| `1013`     | Connection capacity reached or server stopping.            |
 
-- **Partial Transcripts**:
+The server's 30-second timer covers AWS startup and the initial SDK response, which can require the first event. It is cleared when the SDK returns that response; it does not then limit pauses between transcript events or the total session duration. A dropped network connection may appear locally as abnormal closure rather than one of the server's intended codes.
 
-  ```json
-  { "partialTranscript": "Current partial transcription..." }
-  ```
+## Node.js file client
 
-- **Final Transcripts**:
-
-  ```json
-  { "transcript": "Final transcribed text." }
-  ```
-
-**Note**: AWS Transcribe decides what is final and what is partial. There is no guarantee when a final transcript will arrive or how many chunks of audio Transcribe will need to decide on a final transcript. Refer to the [AWS Transcribe Streaming documentation](https://docs.aws.amazon.com/transcribe/latest/dg/API_streaming_StartStreamTranscription.html) for more details.
-
-## Handling Errors
-
-The server will send an error message and close the connection in case of issues:
-
-- **Error Message**:
-
-  ```json
-  { "error": "Error description." }
-  ```
-
-- **WebSocket Close Codes**:
-
-  - `1000`: Normal closure after transcription completes.
-  - `1009`: Audio message or buffering limit exceeded.
-  - `1008`: Policy violation (e.g., invalid query parameters).
-  - `1011`: Server error during transcription or AWS startup timeout.
-
-## Example Client Implementations
-
-### JavaScript (Node.js)
-
-Below is an example of a simple client using Node.js `ws` library:
+Save as `client.mjs` in the repository root. This uses the installed `ws` package and ES modules, matching the project. It streams an existing raw mono PCM recording in paced 100 ms chunks while processing transcript messages as they arrive.
 
 ```javascript
-// client.js
+import { createReadStream } from 'node:fs'
+import { setTimeout as delay } from 'node:timers/promises'
+import WebSocket from 'ws'
 
-const WebSocket = require('ws')
+const [filename, uri] = process.argv.slice(2)
+if (!filename || !uri) {
+  throw new Error('Usage: node client.mjs recording.pcm "ws://host/?token=..."')
+}
 
-const ws = new WebSocket(
-  'wss://your-server-address:PORT/?token=your-api-token&sendPartials=false',
-)
-
-ws.on('open', () => {
-  console.log('Connected to the server')
-
-  // Replace with actual audio streaming logic
-  // For example, send audio data from microphone or a file
-  const audioStream = getAudioStream() // Implement this function
-
-  audioStream.on('data', (chunk) => {
-    ws.send(chunk)
-  })
-
-  // if streaming from a file, send END_OF_STREAM message
-  audioStream.on('end', () => {
-    ws.send('END_OF_STREAM')
-  })
+const ws = new WebSocket(uri)
+ws.on('message', (message) => console.log(JSON.parse(message.toString())))
+ws.on('error', (error) => {
+  console.error(error.message)
+  process.exitCode = 1
+})
+ws.on('close', (code, reason) => {
+  console.log(`Closed: ${code} ${reason}`)
+  if (code !== 1000) process.exitCode = 1
 })
 
-ws.on('message', (message) => {
-  const data = JSON.parse(message)
-  if (data.partialTranscript) {
-    console.log('Partial Transcript:', data.partialTranscript)
-  } else if (data.transcript) {
-    console.log('Final Transcript:', data.transcript)
-  } else if (data.error) {
-    console.error('Error:', data.error)
+ws.on('open', async () => {
+  try {
+    for await (const chunk of createReadStream(filename, {
+      highWaterMark: 3200,
+    })) {
+      while (ws.bufferedAmount > 3200 && ws.readyState === WebSocket.OPEN) {
+        await delay(20)
+      }
+      if (ws.readyState !== WebSocket.OPEN) return
+      if (chunk.length % 2 !== 0)
+        throw new Error('Incomplete 16-bit PCM sample')
+      ws.send(chunk)
+      await delay(100)
+    }
+    if (ws.readyState === WebSocket.OPEN) ws.send('END_OF_STREAM')
+  } catch (error) {
+    console.error(error.message)
+    process.exitCode = 1
+    ws.close(1000, 'Client error')
   }
 })
-
-ws.on('close', (code, reason) => {
-  console.log(`Connection closed (code: ${code}, reason: ${reason})`)
-})
 ```
 
-### Python
+Run it against a local server:
 
-Below is an example of a simple client using Python `websockets` library:
+```bash
+node client.mjs recording.pcm 'ws://localhost:3000/?token=your-api-token&sendPartials=false'
+```
+
+Use the matching `encoding=pcm&sampleRate=16000` settings if your URL supplies these explicitly. Other audio formats or sample rates require changing the client chunking and timing as well as the query parameters.
+
+## Python file client
+
+Install the Python `websockets` package in your Python environment. Save as `client.py`; this example uses the same raw mono 16 kHz PCM input and sends and receives concurrently.
 
 ```python
-# client.py
-
 import asyncio
-import websockets
 import json
+import sys
 
-async def send_audio(uri):
-    async with websockets.connect(uri) as websocket:
-        print("Connected to the server")
+from websockets.asyncio.client import connect
 
-        # Replace with actual audio streaming logic
-        # For example, send audio data from microphone or a file
-        async for chunk in get_audio_stream():  # Implement this function
+
+async def send_audio(websocket, filename):
+    with open(filename, "rb") as audio:
+        while chunk := audio.read(3200):
+            if len(chunk) % 2:
+                raise ValueError("Incomplete 16-bit PCM sample")
             await websocket.send(chunk)
+            await asyncio.sleep(0.1)
+    await websocket.send("END_OF_STREAM")
 
-        # if streaming from a file, send END_OF_STREAM message
-        await websocket.send("END_OF_STREAM")
 
-        async for message in websocket:
-            data = json.loads(message)
-            if "partialTranscript" in data:
-                print("Partial Transcript:", data["partialTranscript"])
-            elif "transcript" in data:
-                print("Final Transcript:", data["transcript"])
-            elif "error" in data:
-                print("Error:", data["error"])
+async def receive_results(websocket):
+    async for message in websocket:
+        print(json.loads(message))
 
-asyncio.get_event_loop().run_until_complete(
-    send_audio('wss://your-server-address:PORT/?token=your-api-token&sendPartials=false')
-)
+
+async def main(filename, uri):
+    async with connect(uri) as websocket:
+        await asyncio.gather(
+            send_audio(websocket, filename),
+            receive_results(websocket),
+        )
+
+
+if __name__ == "__main__":
+    asyncio.run(main(sys.argv[1], sys.argv[2]))
 ```
 
----
+```bash
+python client.py recording.pcm 'ws://localhost:3000/?token=your-api-token&sendPartials=false'
+```
 
-_Note: Replace `your-server-address`, `your-api-token`, and other placeholders with actual values relevant to your deployment._
+For microphone clients, replace the file reader and pacing with your capture pipeline; retain binary messages, concurrent result handling, and the text end-of-stream marker.
