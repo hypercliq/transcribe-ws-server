@@ -43,6 +43,7 @@ wss://your-server-address:PORT/?token=123abc&language=en-US&encoding=pcm&sampleR
 
 - **Format**: Send audio data as binary messages over the WebSocket connection.
 - **Chunking**: Audio data should be sent in small chunks to ensure real-time processing. A buffer size of 1024 bytes is recommended.
+- **Limits**: Each WebSocket message may contain at most 1 MiB. The server retains at most 4 MiB or 4096 queued audio chunks per connection; exceeding either limit closes the connection with code `1009`. Pace file uploads rather than sending the whole file at once.
 - **End of Stream**: When streaming from a file, send an `END_OF_STREAM` message to indicate the end of the audio stream.
 
 ## Receiving Transcription Results
@@ -75,9 +76,10 @@ The server will send an error message and close the connection in case of issues
 
 - **WebSocket Close Codes**:
 
-  - `1000`: Normal closure (e.g., transcription timeout).
+  - `1000`: Normal closure after transcription completes.
+  - `1009`: Audio message or buffering limit exceeded.
   - `1008`: Policy violation (e.g., invalid query parameters).
-  - `1011`: Server error during transcription.
+  - `1011`: Server error during transcription or AWS startup timeout.
 
 ## Example Client Implementations
 

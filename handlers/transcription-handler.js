@@ -11,10 +11,17 @@ export const handleTranscriptionStream = async (
   ws,
   clientLogger,
   sendPartials,
+  logTranscripts = false,
 ) => {
   try {
     for await (const event of transcriptStream) {
-      await processTranscriptEvent(event, ws, clientLogger, sendPartials)
+      await processTranscriptEvent(
+        event,
+        ws,
+        clientLogger,
+        sendPartials,
+        logTranscripts,
+      )
     }
 
     if (ws.readyState === ws.OPEN) {
@@ -40,19 +47,26 @@ const processTranscriptEvent = async (
   ws,
   clientLogger,
   sendPartials,
+  logTranscripts = false,
 ) => {
   const results = event.TranscriptEvent?.Transcript?.Results
 
   if (results) {
     for (const result of results) {
-      const transcript = result.Alternatives[0]?.Transcript
+      if (ws.readyState !== ws.OPEN) return
+      const transcript = result.Alternatives?.[0]?.Transcript
 
       if (transcript) {
         if (!result.IsPartial) {
-          clientLogger.info(`Final transcript: ${transcript}`)
+          if (logTranscripts)
+            clientLogger.info({ transcript }, 'Final transcript')
           ws.send(JSON.stringify({ transcript }))
         } else if (sendPartials) {
-          clientLogger.debug(`Partial transcript: ${transcript}`)
+          if (logTranscripts)
+            clientLogger.debug(
+              { partialTranscript: transcript },
+              'Partial transcript',
+            )
           ws.send(JSON.stringify({ partialTranscript: transcript }))
         } else {
           clientLogger.debug('Partial transcripts are disabled.')
@@ -73,9 +87,7 @@ const processTranscriptEvent = async (
  * @param {object} clientLogger - Logger instance for the client.
  */
 export const handleTranscriptionError = (error, ws, clientLogger) => {
-  clientLogger.error(`Error in transcription stream: ${error.message}`, {
-    stack: error.stack,
-  })
+  clientLogger.error({ err: error }, 'Error in transcription stream')
   if (ws.readyState === ws.OPEN) {
     ws.send(JSON.stringify({ error: 'Error in transcription stream' }))
     ws.close(1011, 'Internal server error') // 1011: Internal Error

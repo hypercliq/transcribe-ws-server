@@ -73,9 +73,13 @@ Use this endpoint to monitor the server's health status.
 The server uses `pino` for logging. Logs include:
 
 - Connection events
-- Transcription results
+- Transcription results, when explicitly enabled
 - Errors and exceptions
 - Memory usage statistics
+
+Connection logs include a session ID, socket IP, the supplied `X-Forwarded-For` header (unverified), a stable token fingerprint, and the validated language, encoding, sample rate, and partial-result setting. Raw API tokens and connection URLs are not logged.
+
+Transcription text is excluded by default. Set `LOG_TRANSCRIPTS=true` to log final transcripts at `info` level and partial transcripts at `debug` level for debugging. These logs can contain sensitive spoken content.
 
 **Log Levels** can be set using the `LOG_LEVEL` environment variable (`debug`, `info`, `warn`, `error`).
 

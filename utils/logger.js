@@ -37,6 +37,7 @@ const transportOptions = {
 const logger = pino(
   {
     level: config.logging.level,
+    redact: ['token', 'apiTokens', 'req.headers.authorization'],
   },
   pino.transport(transportOptions),
 )

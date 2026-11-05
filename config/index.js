@@ -14,8 +14,8 @@ const environmentSchema = Joi.object({
     .custom((value, helpers) => {
       try {
         const tokens = JSON.parse(value)
-        if (!Array.isArray(tokens)) {
-          throw new TypeError('API_TOKENS must be a JSON array.')
+        if (!Array.isArray(tokens) || tokens.length === 0) {
+          throw new TypeError('API_TOKENS must be a non-empty JSON array.')
         }
         // Validate each token is a non-empty string
         const invalidTokens = tokens.filter(
@@ -33,6 +33,7 @@ const environmentSchema = Joi.object({
     .valid('debug', 'info', 'warn', 'error')
     .default('info'),
   LOG_FILE: Joi.string().default('logs/combined.log'),
+  LOG_TRANSCRIPTS: Joi.boolean().default(false),
   NODE_ENV: Joi.string()
     .valid('development', 'production')
     .default('development'),
@@ -57,7 +58,9 @@ export default {
   server: {
     port: environmentVariables.PORT,
     maxConnections: 100,
-    transcribeTimeoutMs: 30_000, // 30 seconds
+    transcribeTimeoutMs: 30_000, // AWS startup timeout, not session duration
+    maxAudioMessageBytes: 1024 * 1024,
+    maxBufferedAudioBytes: 4 * 1024 * 1024,
   },
   auth: {
     apiTokens: environmentVariables.API_TOKENS, // Already parsed as an array
@@ -65,6 +68,7 @@ export default {
   logging: {
     level: environmentVariables.LOG_LEVEL,
     file: environmentVariables.LOG_FILE,
+    transcripts: environmentVariables.LOG_TRANSCRIPTS,
   },
   environment: environmentVariables.NODE_ENV,
 }
