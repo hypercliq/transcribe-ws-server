@@ -21,17 +21,16 @@ const memoryTimer = setInterval(() => {
 }, 60_000)
 memoryTimer.unref()
 
-const gracefulShutdown = () => {
+const gracefulShutdown = async () => {
   clearInterval(memoryTimer)
-  shutdown()
-    .then(() => {
-      transcribeClient.destroy()
-      logger.info('Server closed')
-    })
-    .catch((error) => {
-      logger.fatal({ err: error }, 'Shutdown failed')
-      process.exitCode = 1
-    })
+  try {
+    await shutdown()
+    transcribeClient.destroy()
+    logger.info('Server closed')
+  } catch (error) {
+    logger.fatal({ err: error }, 'Shutdown failed')
+    process.exitCode = 1
+  }
 }
 
 process.once('SIGTERM', gracefulShutdown)

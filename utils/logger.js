@@ -1,31 +1,19 @@
 import pino from 'pino'
 import config from '../config/index.js'
 
-// Define transport targets conditionally
+const isDevelopment = config.environment === 'development'
 const targets = [
-  // Transport for development (pretty-printed logs)
-  ...(config.environment === 'development'
-    ? [
-        {
-          target: 'pino-pretty',
-          options: {
-            colorize: true,
-            translateTime: 'SYS:standard',
-            ignore: 'pid,hostname',
-          },
-          level: config.logging.level,
-        },
-      ]
-    : [
-        {
-          target: 'pino/file',
-          options: {
-            destination: config.logging.file,
-            mkdir: true, // Ensure directories are created if they do not exist
-          },
-          level: config.logging.level,
-        },
-      ]),
+  {
+    target: isDevelopment ? 'pino-pretty' : 'pino/file',
+    options: isDevelopment
+      ? {
+          colorize: true,
+          translateTime: 'SYS:standard',
+          ignore: 'pid,hostname',
+        }
+      : { destination: config.logging.file, mkdir: true },
+    level: config.logging.level,
+  },
 ]
 
 // Create transport options with the defined targets

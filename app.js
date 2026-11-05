@@ -11,15 +11,15 @@ export const createTranscriptionServer = ({
   config,
   logger,
 }) => {
-  let stopping = false
+  let isStopping = false
   let shutdownPromise
   const sessions = new Map()
   const server = http.createServer((request, response) => {
     if (request.method === 'GET' && request.url === '/health') {
-      response.writeHead(stopping ? 503 : 200, {
+      response.writeHead(isStopping ? 503 : 200, {
         'Content-Type': 'application/json',
       })
-      response.end(JSON.stringify({ status: stopping ? 'stopping' : 'ok' }))
+      response.end(JSON.stringify({ status: isStopping ? 'stopping' : 'ok' }))
     } else {
       response.writeHead(404)
       response.end()
@@ -40,7 +40,7 @@ export const createTranscriptionServer = ({
     ws.on('error', (error) =>
       clientLogger.error({ err: error }, 'WebSocket error'),
     )
-    if (stopping || sessions.size >= config.server.maxConnections) {
+    if (isStopping || sessions.size >= config.server.maxConnections) {
       ws.close(1013, 'Server is busy')
       return
     }
@@ -121,31 +121,35 @@ export const createTranscriptionServer = ({
 
   const shutdown = ({ graceMs = 5000 } = {}) => {
     if (shutdownPromise) return shutdownPromise
-    stopping = true
+    isStopping = true
     logger.info('Shutting down server')
-    shutdownPromise = new Promise((resolve, reject) => {
+    shutdownPromise = (async () => {
       const deadline = setTimeout(() => {
         for (const client of wss.clients) client.terminate()
         server.closeAllConnections()
       }, graceMs)
-      const httpClosed = new Promise((done, fail) => {
-        server.close((error) => {
-          if (error && error.code !== 'ERR_SERVER_NOT_RUNNING') fail(error)
-          else done()
+      try {
+        const httpClosed = new Promise((done, fail) => {
+          server.close((error) => {
+            if (error && error.code !== 'ERR_SERVER_NOT_RUNNING') fail(error)
+            else done()
+          })
         })
-      })
-      const socketsClosed = new Promise((done) => wss.close(done))
-      for (const client of wss.clients) {
-        sessions.get(client)?.abort()
-        if (client.readyState === WebSocket.OPEN) {
+        const socketsClosed = new Promise((done) => wss.close(done))
+        for (const client of wss.clients) {
+          sessions.get(client)?.abort()
+          if (client.readyState !== WebSocket.OPEN) {
+            continue
+          }
+
           client.send(JSON.stringify({ error: 'Server is shutting down' }))
           client.close(1001, 'Server is shutting down')
         }
+        await Promise.all([httpClosed, socketsClosed])
+      } finally {
+        clearTimeout(deadline)
       }
-      Promise.all([httpClosed, socketsClosed])
-        .then(resolve, reject)
-        .finally(() => clearTimeout(deadline))
-    })
+    })()
     return shutdownPromise
   }
 

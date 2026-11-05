@@ -27,13 +27,17 @@ const fixture = () => {
   const logger = Object.fromEntries(
     ['debug', 'info', 'warn', 'error'].map((level) => [
       level,
-      (...entries) => logs.push(entries),
+      (...entries) => {
+        logs.push(entries)
+      },
     ]),
   )
   const ws = {
     OPEN: 1,
     readyState: 1,
-    send: (message) => messages.push(JSON.parse(message)),
+    send: (message) => {
+      messages.push(JSON.parse(message))
+    },
     close() {
       this.readyState = 3
     },

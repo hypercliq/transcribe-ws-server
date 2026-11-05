@@ -1,0 +1,4 @@
+client/
+.dev/
+coverage/
+logs/

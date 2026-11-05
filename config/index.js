@@ -3,7 +3,7 @@ import dotenv from 'dotenv'
 import Joi from 'joi'
 
 // Load environment variables from .env file
-dotenv.config()
+dotenv.config({ quiet: true })
 
 // Define the schema for environment variables with transformation
 const environmentSchema = Joi.object({

@@ -23,7 +23,9 @@ const launch = async (t, client, overrides = {}) => {
   const logger = Object.fromEntries(
     ['info', 'warn', 'error', 'debug'].map((level) => [
       level,
-      (...entries) => logs.push(entries),
+      (...entries) => {
+        logs.push(entries)
+      },
     ]),
   )
   logger.child = (context) => {
@@ -93,7 +95,9 @@ test('real WebSocket streams audio through end-of-stream and returns final resul
     '?token=private-test-token&sendPartials=false&language=en-GB',
   )
   const results = []
-  ws.on('message', (message) => results.push(JSON.parse(message)))
+  ws.on('message', (message) => {
+    results.push(JSON.parse(message))
+  })
   const closed = once(ws, 'close')
   ws.send(Buffer.from([1, 2]))
   ws.send('END_OF_STREAM')
@@ -213,9 +217,9 @@ test('malformed upgrade URLs are rejected without logging the raw token', async 
   socket.on('data', () => socket.end())
   await ended
   const logs = JSON.stringify(app.logs, (_key, value) => {
-    if (value instanceof Error)
-      return { ...value, message: value.message, stack: value.stack }
-    return value
+    return value instanceof Error
+      ? { ...value, message: value.message, stack: value.stack }
+      : value
   })
   assert.ok(!logs.includes('private-test-token'), logs)
   assert.ok(logs.includes('Invalid request URL'))

@@ -9,8 +9,8 @@ export const createAudioStream = (
 ) => {
   const messageQueue = []
   let bufferedBytes = 0
-  let closed = false
-  let ended = false
+  let isClosed = false
+  let isEnded = false
   let failure
   let wake
 
@@ -22,8 +22,8 @@ export const createAudioStream = (
   }
 
   const dispose = (error) => {
-    if (closed) return
-    closed = true
+    if (isClosed) return
+    isClosed = true
     failure = error
     messageQueue.length = 0
     bufferedBytes = 0
@@ -39,7 +39,7 @@ export const createAudioStream = (
   const onAbort = () => dispose()
 
   const onMessage = (message, isBinary) => {
-    if (closed || ended) return
+    if (isClosed || isEnded) return
     if (isBinary ?? message instanceof ArrayBuffer) {
       const chunk = Buffer.from(message)
       if (chunk.length === 0) return
@@ -54,7 +54,7 @@ export const createAudioStream = (
       messageQueue.push(chunk)
       bufferedBytes += chunk.length
     } else if (message.toString() === 'END_OF_STREAM') {
-      ended = true
+      isEnded = true
     } else {
       clientLogger.warn('Received unknown control message')
       if (ws.readyState === ws.OPEN) {
@@ -72,18 +72,18 @@ export const createAudioStream = (
 
   const stream = (async function* () {
     try {
-      while (!closed) {
+      while (!isClosed) {
         if (messageQueue.length > 0) {
           const chunk = messageQueue.shift()
           bufferedBytes -= chunk.length
           yield { AudioEvent: { AudioChunk: chunk } }
-        } else if (ended) {
+        } else if (isEnded) {
           yield { AudioEvent: { AudioChunk: Buffer.alloc(0) } }
           return
         } else {
-          await new Promise((resolve) => {
-            wake = resolve
-          })
+          const pending = Promise.withResolvers()
+          wake = pending.resolve
+          await pending.promise
         }
       }
       if (failure) throw failure
