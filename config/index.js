@@ -1,9 +1,13 @@
 // config/index.js
-import dotenv from 'dotenv'
+import { loadEnvFile } from 'node:process'
 import Joi from 'joi'
 
-// Load environment variables from .env file
-dotenv.config({ quiet: true })
+// An optional .env supplements existing environment variables.
+try {
+  loadEnvFile()
+} catch (error) {
+  if (error.code !== 'ENOENT') throw error
+}
 
 // Define the schema for environment variables with transformation
 const environmentSchema = Joi.object({

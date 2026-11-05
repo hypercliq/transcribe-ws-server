@@ -45,6 +45,8 @@ This WebSocket server provides real-time speech-to-text transcription using AWS 
    LOG_LEVEL=info # optional: debug, info, warn, error
    ```
 
+   The server uses Node's native `.env` loader. The file is optional when variables are provided by the deployment environment; existing environment variables take precedence. An existing `.env` that cannot be read causes startup to fail.
+
    If another AWS credential method is preferred, update the `aws-sdk` configuration in `server.js`. Right now it uses `fromEnv()`.
 
 ## Running the Server
