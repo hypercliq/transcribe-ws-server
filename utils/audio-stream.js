@@ -1,99 +1,96 @@
 /**
- * Creates an asynchronous generator that yields audio chunks received from the client.
- * Ends the generator when an end-of-stream message is received.
- * @param {WebSocket} ws - The WebSocket connection.
- * @param {Logger} clientLogger - Logger instance for the client.
- * @returns {AsyncGenerator} - Yields audio chunks.
+ * Buffer audio as soon as a client connects, including during AWS startup.
+ * Bound the queue and release pending consumers on close, error or cancellation.
  */
-export const createAudioStream = async function* (ws, clientLogger) {
+export const createAudioStream = (
+  ws,
+  clientLogger,
+  { signal, maxBufferedBytes = 4 * 1024 * 1024, maxBufferedChunks = 4096 } = {},
+) => {
   const messageQueue = []
+  let bufferedBytes = 0
   let isClosed = false
-  let resolvePromise
-  let isResolving = false
-  let endStreamReceived = false
+  let isEnded = false
+  let failure
+  let wake
 
   ws.binaryType = 'arraybuffer'
 
-  const waitForMessage = () => {
-    if (isResolving) return
-    isResolving = true
-    return new Promise((resolve) => {
-      resolvePromise = resolve
-    })
+  const notify = () => {
+    wake?.()
+    wake = undefined
   }
 
-  const messageHandler = (message) => {
-    try {
-      if (message instanceof ArrayBuffer) {
-        clientLogger.debug(
-          `Received audio chunk of size: ${message.byteLength} bytes`,
-        )
-        messageQueue.push(Buffer.from(message))
-        if (resolvePromise) {
-          resolvePromise()
-          resolvePromise = undefined
-        }
-      } else if (message.toString() === 'END_OF_STREAM') {
-        clientLogger.debug('Received end-of-stream message from client.')
-        endStreamReceived = true
-        if (resolvePromise) {
-          resolvePromise()
-          resolvePromise = undefined
-        }
-      } else {
-        clientLogger.warn(`Received unknown message: ${message}`)
-        // notify the client that the message is unknown
-        ws.send(`Unknown message: ${message}`)
-      }
-    } catch (error) {
-      clientLogger.error(`Error processing message: ${error.message}`, {
-        stack: error.stack,
-      })
-    }
-  }
-
-  const closeHandler = () => {
+  const dispose = (error) => {
+    if (isClosed) return
     isClosed = true
-    clientLogger.debug('WebSocket connection closed.')
-    if (resolvePromise) {
-      resolvePromise = undefined
-    }
+    failure = error
+    messageQueue.length = 0
+    bufferedBytes = 0
+    ws.off('message', onMessage)
+    ws.off('close', onClose)
+    ws.off('error', onError)
+    signal?.removeEventListener('abort', onAbort)
+    notify()
   }
 
-  ws.on('message', messageHandler)
-  ws.on('close', closeHandler)
+  const onClose = () => dispose()
+  const onError = (error) => dispose(error)
+  const onAbort = () => dispose()
 
-  try {
-    while (true) {
-      while (messageQueue.length > 0) {
-        const chunk = messageQueue.shift()
-        yield { AudioEvent: { AudioChunk: chunk } }
+  const onMessage = (message, isBinary) => {
+    if (isClosed || isEnded) return
+    if (isBinary ?? message instanceof ArrayBuffer) {
+      const chunk = Buffer.from(message)
+      if (chunk.length === 0) return
+      if (
+        bufferedBytes + chunk.length > maxBufferedBytes ||
+        messageQueue.length >= maxBufferedChunks
+      ) {
+        dispose(new Error('Audio buffer limit exceeded'))
+        ws.close(1009, 'Audio buffer limit exceeded')
+        return
       }
-
-      if (endStreamReceived) {
-        clientLogger.debug('End of audio stream detected.')
-        yield { AudioEvent: { AudioChunk: Buffer.alloc(0) } } // send empty buffer to signal end of stream
-        break // Exit the generator
+      messageQueue.push(chunk)
+      bufferedBytes += chunk.length
+    } else if (message.toString() === 'END_OF_STREAM') {
+      isEnded = true
+    } else {
+      clientLogger.warn('Received unknown control message')
+      if (ws.readyState === ws.OPEN) {
+        ws.send(JSON.stringify({ error: 'Unknown control message' }))
       }
-
-      if (isClosed) {
-        clientLogger.warn(
-          'WebSocket connection closed before end-of-stream message.',
-        )
-        break
-      }
-
-      await waitForMessage()
-      isResolving = false
     }
-  } catch (error) {
-    clientLogger.error(`Error in audio stream: ${error.message}`, {
-      stack: error.stack,
-    })
-  } finally {
-    // Clean up event listeners
-    ws.off('message', messageHandler)
-    ws.off('close', closeHandler)
-    clientLogger.debug('Audio stream closed and cleaned up')
+    notify()
   }
+
+  ws.on('message', onMessage)
+  ws.on('close', onClose)
+  ws.on('error', onError)
+  signal?.addEventListener('abort', onAbort, { once: true })
+  if (signal?.aborted || ws.readyState !== ws.OPEN) dispose()
+
+  const stream = (async function* () {
+    try {
+      while (!isClosed) {
+        if (messageQueue.length > 0) {
+          const chunk = messageQueue.shift()
+          bufferedBytes -= chunk.length
+          yield { AudioEvent: { AudioChunk: chunk } }
+        } else if (isEnded) {
+          yield { AudioEvent: { AudioChunk: Buffer.alloc(0) } }
+          return
+        } else {
+          const pending = Promise.withResolvers()
+          wake = pending.resolve
+          await pending.promise
+        }
+      }
+      if (failure) throw failure
+    } finally {
+      dispose()
+    }
+  })()
+
+  return Object.assign(stream, { dispose })
 }

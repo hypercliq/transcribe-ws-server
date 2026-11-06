@@ -1,110 +1,116 @@
 # WebSocket Server for AWS Transcribe Streaming
 
-This WebSocket server provides real-time speech-to-text transcription using AWS Transcribe Streaming.
+A small WebSocket gateway for real-time speech-to-text with AWS Transcribe Streaming. Clients send audio and receive JSON partial and final transcripts. See [USAGE.md](USAGE.md) for the protocol and paced file-client examples.
 
-## Features
+## Requirements
 
-- Real-time transcription of audio streams.
-- Supports multiple languages and audio encoding formats.
-- Provides partial and final transcription results.
-- Health check endpoint for monitoring server status.
-- Graceful shutdown and error handling.
+- A maintained Node LTS release: **22.21+, 24.10+, or 26.x**. `.node-version` selects Node 26. Other major versions are excluded by `engines` and `engine-strict`.
+- An AWS account with Transcribe Streaming available in the configured region and credentials authorized for `transcribe:StartStreamTranscription`.
+- Audio encoded for streaming; the server forwards bytes without decoding, converting, or resampling them.
 
-## Prerequisites
+## Install and run
 
-- **AWS Account**: Required for AWS Transcribe Streaming service.
-- **Node.js**: Ensure Node.js is installed on your system.
-- **Environment Variables**: Configure necessary environment variables.
+```bash
+git clone https://github.com/hypercliq/transcribe-ws-server.git
+cd transcribe-ws-server
+npm ci
+cp .env.example .env
+```
 
-## Installation
+Edit `.env` to supply your AWS credentials and replace `API_TOKENS` with a non-empty JSON array of private tokens. Give separate clients separate tokens when you need to distinguish their requests in logs. Generate a token with:
 
-1. **Clone the repository**:
+```bash
+node --input-type=module -e "import { randomBytes } from 'node:crypto'; console.log(randomBytes(32).toString('hex'))"
+```
 
-   ```bash
-   git clone https://github.com/your-repo.git
-   cd your-repo
-   ```
-
-2. **Install dependencies**:
-
-   ```bash
-   npm install
-   ```
-
-3. **Set up environment variables**:
-
-   Create a `.env` file in the project root with the following variables:
-
-   ```bash
-   AWS_ACCESS_KEY_ID=your-access-key-id
-   AWS_SECRET_ACCESS_KEY=your-secret-access-key
-   AWS_REGION=your-aws-region
-   PORT=your-server-port
-   API_TOKEN=your-api-token # for client authorization
-   LOG_LEVEL=info # optional: debug, info, warn, error
-   ```
-
-   If another AWS credential method is preferred, update the `aws-sdk` configuration in `server.js`. Right now it uses `fromEnv()`.
-
-## Running the Server
-
-Start the server with:
+Start the server from the repository root:
 
 ```bash
 npm start
 ```
 
-The server will listen on the port specified in the `PORT` environment variable.
+Node's native loader reads `.env` from the current working directory. The file is optional when configuration is supplied by the deployment environment, and existing environment variables take precedence. Other `.env.*` files are not selected automatically. An existing `.env` that cannot be read causes startup to fail.
 
-## Health Check Endpoint
+The AWS client uses `fromEnv()`: set `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, plus `AWS_SESSION_TOKEN` for temporary credentials. Credentials are resolved when a transcription starts; a successful startup or health response does not prove that credentials work. IAM role, shared-profile, and other default-chain credential sources are not enabled by this server configuration.
 
-- **URL**: `http://your-server-address:PORT/health`
-- **Method**: `GET`
-- **Response**:
+## Configuration
 
-  ```json
-  { "status": "ok" }
-  ```
+| Variable                | Required                  | Default             | Purpose                                                                         |
+| ----------------------- | ------------------------- | ------------------- | ------------------------------------------------------------------------------- |
+| `AWS_REGION`            | Yes                       | —                   | AWS region used for Transcribe Streaming.                                       |
+| `PORT`                  | Yes                       | —                   | TCP port for the HTTP and WebSocket server.                                     |
+| `API_TOKENS`            | Yes                       | —                   | Non-empty JSON array of non-empty strings, e.g. `'["token-a"]'`.                |
+| `AWS_ACCESS_KEY_ID`     | For transcription         | —                   | AWS access key for the environment credential provider.                         |
+| `AWS_SECRET_ACCESS_KEY` | For transcription         | —                   | AWS secret key for the environment credential provider.                         |
+| `AWS_SESSION_TOKEN`     | For temporary credentials | —                   | Session token belonging to the AWS access key.                                  |
+| `NODE_ENV`              | No                        | `development`       | `development` selects pretty console logs; `production` selects JSON file logs. |
+| `LOG_LEVEL`             | No                        | `info`              | `debug`, `info`, `warn`, or `error`.                                            |
+| `LOG_FILE`              | No                        | `logs/combined.log` | Destination for production JSON logs, relative to the working directory.        |
+| `LOG_TRANSCRIPTS`       | No                        | `false`             | Opt in to logging spoken content.                                               |
 
-Use this endpoint to monitor the server's health status.
+Do not commit `.env` or AWS credentials. Restart the process after changing configuration or tokens.
 
-## Logging
+## Deployment and health
 
-The server uses `pino` for logging. Logs include:
+The application serves **plain HTTP and `ws://`**; it does not create a TLS listener. Use `ws://localhost:PORT/` locally. For public `wss://` access, terminate TLS at a reverse proxy or load balancer that forwards WebSocket upgrades to this server. Protect query strings in proxy access logs: connection URLs contain authentication tokens even though application logs redact them.
 
-- Connection events
-- Transcription results
-- Errors and exceptions
-- Memory usage statistics
+For an install without development dependencies:
 
-**Log Levels** can be set using the `LOG_LEVEL` environment variable (`debug`, `info`, `warn`, `error`).
+```bash
+npm ci --omit=dev
+NODE_ENV=production npm start
+```
 
-In development mode, logs are written to the console. In production, logs are also written to a file in JSON format.
+The explicit environment setting overrides the development value in the example `.env`. Development logging requires `pino-pretty`, which is excluded by `--omit=dev`.
 
-## Environment Variables Summary
+`GET /health` responds with HTTP 200 and `{"status":"ok"}` while serving. It checks process availability, not AWS connectivity, credentials, service quotas, or remaining session capacity. Shutdown stops listening immediately.
 
-- `AWS_ACCESS_KEY_ID`: AWS access key ID for Transcribe service.
-- `AWS_SECRET_ACCESS_KEY`: AWS secret access key for Transcribe service.
-- `AWS_REGION`: AWS region where Transcribe service is available.
-- `PORT`: Port number the server listens on.
-- `API_TOKEN`: Token used for client authorization.
-- `LOG_LEVEL` (optional): Logging level for the server.
+## Limits and shutdown
 
-## Graceful Shutdown
+The current limits are defined in [config/index.js](config/index.js) and [utils/audio-stream.js](utils/audio-stream.js):
 
-The server handles `SIGTERM` and `SIGINT` signals to allow for graceful shutdown, ensuring all active connections are properly closed.
+- Up to 100 tracked WebSocket connections per process; excess connections close with `1013`.
+- A 30-second **AWS startup timeout**. It is cleared when the SDK returns its streaming response, which can require an initial event; it is not a session-duration or idle-audio limit.
+- At most 1 MiB per WebSocket message and 4 MiB / 4096 queued audio chunks per connection. Limit breaches close with `1009`.
+- No application heartbeat or session/idle-duration policy. File clients must pace audio close to real time.
+
+On `SIGTERM` or `SIGINT`, the server stops accepting new connections, aborts tracked AWS requests, and closes open clients with `1001`. After five seconds it terminates remaining sockets. Shutdown cancels active transcriptions; it does not promise to drain their final results.
+
+## Logging and debugging
+
+Development logs go to the console. Production logs go to `LOG_FILE` as JSON; production does not also emit the same application logs to stdout. Arrange file rotation or collection in your deployment.
+
+Connection logs include a random `sessionId`, socket `IP`, and the supplied `forwardedFor` header. The forwarded header is unverified client input, not an authenticated identity. Authorized-request logs add:
+
+- `tokenFingerprint`: the first 12 hexadecimal characters of SHA-256 of the matching API token, allowing requests from the same token to be correlated without recording it.
+- `language`, `encoding`, `sampleRate`, and `sendPartials`: validated request settings, including defaults.
+
+Validation failures identify invalid fields and error types without listing permitted token values. Raw API tokens and complete connection URLs are not logged. Final transcript text is excluded by default. To inspect spoken content temporarily, set `LOG_TRANSCRIPTS=true`: final text logs at `info`, and partial text logs at `debug` when partial results are enabled and `LOG_LEVEL=debug`. These logs can contain sensitive speech.
+
+## Development checks
+
+```bash
+npm ci
+npm run check
+```
+
+`check` runs formatting checks, ESLint, and tests. Use `npm run format` or `npm run lint:fix` for deliberate fixes. Tests use isolated configuration processes and local WebSocket connections with a fake AWS client; no AWS credentials or paid AWS calls are required.
+
+CI checks Node 22, 24, and 26 LTS. Dependabot checks npm packages and pinned GitHub Actions weekly. Add a future Node line only after it enters LTS and passes CI; remove a line when it reaches end of life.
 
 ## Troubleshooting
 
-- **Connection Refused**: Ensure the server is running and the port is open.
-- **Authorization Failed**: Verify the `token` parameter matches `API_TOKEN`.
-- **Invalid Parameters**: Check that query parameters are correctly formatted.
-- **Transcription Timeout**: Ensure audio data is being sent consistently.
+| Symptom                         | Check                                                                                                  |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Startup configuration error     | Check required values, the JSON syntax of `API_TOKENS`, and the working directory for `.env`.          |
+| Missing `pino-pretty`           | Set `NODE_ENV=production` for a production-only install, or install development dependencies.          |
+| No console logs in production   | Inspect `LOG_FILE` and its directory permissions.                                                      |
+| Connection refused or TLS error | Check `PORT`, listener reachability, and whether the URL uses the appropriate `ws://` / `wss://` path. |
+| Close `1008`                    | Check the token and query parameters; URL-encode values using `URLSearchParams` or an equivalent.      |
+| Close `1009`                    | Reduce audio message size and pace the upload; do not send an entire large file immediately.           |
+| Close `1011`                    | Inspect the session logs for AWS credentials, region, format, quota, network, or startup failures.     |
+| Missing final words             | Send `END_OF_STREAM` and keep receiving until the server closes normally; closing early cancels AWS.   |
 
 ## License
 
-This project is licensed under the EUPL-1.2-or-later license. See the [LICENSE](LICENSE) file for details.
-
----
-
-_Note: Replace `your-server-address`, `your-api-token`, and other placeholders with actual values relevant to your deployment._
+[EUPL-1.2-or-later](LICENSE).

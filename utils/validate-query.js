@@ -1,5 +1,6 @@
 // utils/validateQuery.js
 import Joi from 'joi'
+import { createHash } from 'node:crypto'
 import {
   LanguageCode,
   MediaEncoding,
@@ -32,12 +33,30 @@ export const validateQueryParameters = (url, clientLogger) => {
   const { error, value } = querySchema.validate(queryParameters)
 
   if (error) {
-    clientLogger.warn(`Invalid query parameters: ${error.message}`)
+    clientLogger.warn(
+      {
+        errors: error.details.map(({ path, type }) => ({
+          field: path.join('.'),
+          type,
+        })),
+      },
+      'Invalid query parameters',
+    )
     return { isValid: false, value: undefined }
   }
 
   clientLogger.info(
-    `Authorization successful for API token: ${value.token.slice(0, 5)}...`,
+    {
+      tokenFingerprint: createHash('sha256')
+        .update(value.token)
+        .digest('hex')
+        .slice(0, 12),
+      language: value.language,
+      encoding: value.encoding,
+      sampleRate: value.sampleRate,
+      sendPartials: value.sendPartials,
+    },
+    'Authorized transcription request',
   )
   return { isValid: true, value }
 }

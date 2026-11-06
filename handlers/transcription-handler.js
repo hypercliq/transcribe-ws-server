@@ -4,17 +4,24 @@
  * @param {AsyncIterable} transcriptStream - The transcription result stream.
  * @param {WebSocket} ws - The WebSocket connection.
  * @param {Logger} clientLogger - Logger instance for the client.
- * @param {boolean} sendPartials - Whether to send partial transcripts.
+ * @param {boolean} shouldSendPartials - Whether to send partial transcripts.
  */
 export const handleTranscriptionStream = async (
   transcriptStream,
   ws,
   clientLogger,
-  sendPartials,
+  shouldSendPartials,
+  shouldLogTranscripts = false,
 ) => {
   try {
     for await (const event of transcriptStream) {
-      await processTranscriptEvent(event, ws, clientLogger, sendPartials)
+      await processTranscriptEvent(
+        event,
+        ws,
+        clientLogger,
+        shouldSendPartials,
+        shouldLogTranscripts,
+      )
     }
 
     if (ws.readyState === ws.OPEN) {
@@ -33,26 +40,33 @@ export const handleTranscriptionStream = async (
  * @param {Object} event - The transcription event.
  * @param {WebSocket} ws - The WebSocket connection.
  * @param {object} clientLogger - Logger instance for the client.
- * @param {boolean} sendPartials - Whether to send partial transcripts.
+ * @param {boolean} shouldSendPartials - Whether to send partial transcripts.
  */
 const processTranscriptEvent = async (
   event,
   ws,
   clientLogger,
-  sendPartials,
+  shouldSendPartials,
+  shouldLogTranscripts = false,
 ) => {
   const results = event.TranscriptEvent?.Transcript?.Results
 
   if (results) {
     for (const result of results) {
-      const transcript = result.Alternatives[0]?.Transcript
+      if (ws.readyState !== ws.OPEN) return
+      const transcript = result.Alternatives?.[0]?.Transcript
 
       if (transcript) {
         if (!result.IsPartial) {
-          clientLogger.info(`Final transcript: ${transcript}`)
+          if (shouldLogTranscripts)
+            clientLogger.info({ transcript }, 'Final transcript')
           ws.send(JSON.stringify({ transcript }))
-        } else if (sendPartials) {
-          clientLogger.debug(`Partial transcript: ${transcript}`)
+        } else if (shouldSendPartials) {
+          if (shouldLogTranscripts)
+            clientLogger.debug(
+              { partialTranscript: transcript },
+              'Partial transcript',
+            )
           ws.send(JSON.stringify({ partialTranscript: transcript }))
         } else {
           clientLogger.debug('Partial transcripts are disabled.')
@@ -73,11 +87,11 @@ const processTranscriptEvent = async (
  * @param {object} clientLogger - Logger instance for the client.
  */
 export const handleTranscriptionError = (error, ws, clientLogger) => {
-  clientLogger.error(`Error in transcription stream: ${error.message}`, {
-    stack: error.stack,
-  })
-  if (ws.readyState === ws.OPEN) {
-    ws.send(JSON.stringify({ error: 'Error in transcription stream' }))
-    ws.close(1011, 'Internal server error') // 1011: Internal Error
+  clientLogger.error({ err: error }, 'Error in transcription stream')
+  if (ws.readyState !== ws.OPEN) {
+    return
   }
+
+  ws.send(JSON.stringify({ error: 'Error in transcription stream' }))
+  ws.close(1011, 'Internal server error') // 1011: Internal Error
 }
