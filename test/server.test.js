@@ -224,3 +224,35 @@ test('malformed upgrade URLs are rejected without logging the raw token', async 
   assert.ok(!logs.includes('private-test-token'), logs)
   assert.ok(logs.includes('Invalid request URL'))
 })
+
+test('unexpected generator cleanup failures are logged without rejecting the connection handler', async (t) => {
+  const app = await launch(t, {
+    async send(command) {
+      // Fault injection: the current generator does not reject return() on overflow.
+      command.input.AudioStream.return = async () => {
+        throw new Error('Synthetic cleanup failure')
+      }
+      return { TranscriptResultStream: (async function* () {})() }
+    },
+  })
+  const handler = app.wss.listeners('connection')[0]
+  app.wss.off('connection', handler)
+  // Observe the handler promise explicitly: EventEmitter normally ignores it.
+  const completion = new Promise((resolve) => {
+    app.wss.once('connection', async (ws, request) => {
+      try {
+        await handler(ws, request)
+        resolve({})
+      } catch (error) {
+        resolve({ error })
+      }
+    })
+  })
+  const ws = await app.connect()
+  const closed = once(ws, 'close')
+  const result = await completion
+  assert.equal(result.error, undefined)
+  const [code] = await closed
+  assert.equal(code, 1000)
+  assert.ok(JSON.stringify(app.logs).includes('Audio stream cleanup failed'))
+})

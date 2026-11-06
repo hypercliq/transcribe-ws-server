@@ -114,8 +114,13 @@ export const createTranscriptionServer = ({
     } finally {
       clearTimeout(timeout)
       abortController.abort()
-      audioStream?.dispose()
-      await audioStream?.return()
+      try {
+        audioStream?.dispose()
+        await audioStream?.return()
+      } catch {
+        // EventEmitter does not observe this async handler's rejected promise.
+        clientLogger.warn('Audio stream cleanup failed')
+      }
     }
   })
 

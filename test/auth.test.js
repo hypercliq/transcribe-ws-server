@@ -15,10 +15,29 @@ const run = (code, overrides = {}) =>
     encoding: 'utf8',
   })
 
-test('an empty API token list fails at startup', () => {
-  const result = run("await import('./config/index.js')", { API_TOKENS: '[]' })
-  assert.notEqual(result.status, 0)
-  assert.match(result.stderr, /Config validation error/)
+test('invalid API_TOKENS produce actionable startup errors without exposing tokens', () => {
+  const marker = 'private-token-must-not-appear'
+  const cases = [
+    [`["${marker}"`, /API_TOKENS.*must be valid JSON/],
+    ['[]', /API_TOKENS.*must be a non-empty JSON array/],
+    [
+      JSON.stringify({ token: marker }),
+      /API_TOKENS.*must be a non-empty JSON array/,
+    ],
+    [
+      JSON.stringify([marker, '']),
+      /API_TOKENS.*entries must be non-empty strings/,
+    ],
+  ]
+  for (const [tokens, message] of cases) {
+    const result = run("await import('./config/index.js')", {
+      API_TOKENS: tokens,
+    })
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /Config validation error/)
+    assert.match(result.stderr, message)
+    assert.ok(!(result.stdout + result.stderr).includes(marker))
+  }
 })
 
 test('authorization accepts configured tokens and rejects others without logging secrets', () => {
